@@ -11,7 +11,7 @@ test('sanitizeWorkout clamps and coerces hostile input', () => {
   });
   assert.notEqual(w.id, '../../etc');
   assert.equal(w.name.length, LIMITS.name);
-  assert.equal(w.color, '#ff5a3c');
+  assert.equal(w.color, '#e5533d');
   assert.equal(w.prepare, 0);
   assert.equal(w.rounds, LIMITS.rounds);
   assert.equal(w.sets, 1);
@@ -19,6 +19,11 @@ test('sanitizeWorkout clamps and coerces hostile input', () => {
   assert.equal(w.cooldown, 0);
   assert.deepEqual(w.intervals, [{ type: 'work', name: '', seconds: 1 }]);
   assert.equal(Object.hasOwn(w, 'polluted'), false);
+});
+
+test('v1 colours migrate to the flat palette', () => {
+  const w = sanitizeWorkout({ color: '#22c3a6', intervals: [{ type: 'work', seconds: 20 }] });
+  assert.equal(w.color, '#13896f');
 });
 
 test('workout without intervals is rejected', () => {

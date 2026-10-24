@@ -3,7 +3,7 @@ import { COLORS, LIMITS, newId, sanitizeWorkout, parseBackup } from './model.js'
 import { store } from './store.js';
 import { t, setLang, getLang } from './i18n.js';
 import { presets } from './presets.js';
-import { unlockAudio, cue, speak, vibrate } from './audio.js';
+import { unlockAudio, cue, speak, vibrate, setVolume, voicesFor, onVoicesChanged } from './audio.js';
 
 // ---------- tiny DOM helper (text only, never innerHTML) ----------
 
@@ -55,12 +55,11 @@ function confirmButton(label, onConfirm, cls = 'btn danger') {
 
 let settings = store.settings();
 setLang(settings.lang);
+setVolume(settings.volume / 100);
 
-let workouts = store.workouts();
-if (!workouts) {
-  workouts = [];
-  store.saveWorkouts(workouts);
-}
+const say = text => speak(text, getLang(), settings.voiceURI);
+
+let workouts = store.workouts() ?? [];
 
 let view = 'home';
 
@@ -68,8 +67,23 @@ function persistWorkouts() {
   if (!store.saveWorkouts(workouts)) toast('Storage full');
 }
 
+/** Copy built-in presets into the user's list (skipping ones already present) so they're editable. */
+function addPresets() {
+  const have = new Set(workouts.map(w => w.id));
+  const missing = presets().filter(p => !have.has(p.id)).map(sanitizeWorkout).filter(Boolean);
+  workouts.push(...missing);
+  workouts = workouts.slice(0, LIMITS.workouts);
+  persistWorkouts();
+  return missing.length;
+}
+
+if (!store.seeded()) {
+  addPresets();
+  store.markSeeded();
+}
+
 const PHASE_COLOR = {
-  prepare: '#ffb020', work: '#ff5a3c', rest: '#22c3a6', setRest: '#3d8bfd', cooldown: '#a66cff',
+  prepare: '#d9730d', work: '#e5533d', rest: '#13896f', setRest: '#2a78c8', cooldown: '#8e4ec6',
 };
 
 function summary(w) {
@@ -104,37 +118,34 @@ function render() {
 
 // ---------- home ----------
 
-function workoutCard(w, { isPreset }) {
-  const actions = isPreset
-    ? [h('button', { class: 'btn ghost', type: 'button', onclick: () => duplicate(w) }, t('duplicate'))]
-    : [
-        h('button', { class: 'btn ghost', type: 'button', onclick: () => openEditor(w) }, t('edit')),
-        h('button', { class: 'btn ghost', type: 'button', onclick: () => duplicate(w) }, t('duplicate')),
-        confirmButton(t('delete'), () => {
-          workouts = workouts.filter(x => x.id !== w.id);
-          persistWorkouts();
-          render();
-        }, 'btn ghost danger'),
-      ];
-  return h('article', { class: 'card', style: { '--accent': w.color } },
-    h('div', { class: 'card-main' },
-      h('div', { class: 'card-text' },
-        h('h3', {}, w.name),
-        h('p', { class: 'muted' }, summary(w)),
-      ),
+function workoutCard(w) {
+  return h('article', { class: 'card' },
+    h('h3', {}, w.name),
+    h('p', { class: 'card-sub' }, summary(w)),
+    h('div', { class: 'card-actions' },
       h('button', {
-        class: 'play', type: 'button', 'aria-label': `${t('start')}: ${w.name}`,
+        class: 'card-btn start', type: 'button', 'aria-label': `${t('start')}: ${w.name}`,
         onclick: () => startRun(w),
-      }, h('span', { 'aria-hidden': 'true' }, '▶')),
+      }, `▶ ${t('start')}`),
+      h('button', {
+        class: 'card-btn', type: 'button', 'aria-label': `${t('edit')}: ${w.name}`,
+        onclick: () => openEditor(w),
+      }, t('edit')),
+      h('button', {
+        class: 'card-btn', type: 'button', 'aria-label': `${t('duplicate')}: ${w.name}`,
+        onclick: () => duplicate(w),
+      }, t('duplicate')),
     ),
-    h('div', { class: 'card-actions' }, actions),
   );
 }
 
 function duplicate(w) {
-  const copy = sanitizeWorkout({ ...structuredClone(w), id: newId(), updatedAt: Date.now() });
+  if (workouts.length >= LIMITS.workouts) return;
+  const name = `${w.name} ${t('copySuffix')}`.slice(0, LIMITS.name);
+  const copy = sanitizeWorkout({ ...structuredClone(w), id: newId(), name, updatedAt: Date.now() });
   if (!copy) return;
-  workouts.unshift(copy);
+  const idx = workouts.findIndex(x => x.id === w.id);
+  workouts.splice(idx + 1, 0, copy);
   persistWorkouts();
   openEditor(copy);
 }
@@ -142,14 +153,15 @@ function duplicate(w) {
 function homeView() {
   return h('div', { class: 'stack' },
     h('div', { class: 'section-head' },
-      h('h2', {}, t('myWorkouts')),
-      h('button', { class: 'btn primary', type: 'button', onclick: () => openEditor(null) }, t('newWorkout')),
+      h('h2', {}, t('workouts')),
+      h('button', { class: 'btn primary', type: 'button', onclick: () => openEditor(null) }, `＋ ${t('newWorkout')}`),
     ),
     workouts.length
-      ? h('div', { class: 'cards' }, workouts.map(w => workoutCard(w, { isPreset: false })))
-      : h('p', { class: 'empty' }, t('noWorkouts')),
-    h('div', { class: 'section-head' }, h('h2', {}, t('presets'))),
-    h('div', { class: 'cards' }, presets().map(p => workoutCard(sanitizeWorkout(p), { isPreset: true }))),
+      ? h('div', { class: 'cards' }, workouts.map(workoutCard))
+      : h('div', { class: 'empty stack' },
+          h('p', {}, t('noWorkouts')),
+          h('button', { class: 'btn', type: 'button', onclick: () => { addPresets(); render(); } }, t('restorePresets')),
+        ),
   );
 }
 
@@ -207,18 +219,21 @@ function openEditor(existing) {
         intervals: [{ type: 'work', name: '', seconds: 30 }, { type: 'rest', name: '', seconds: 15 }],
       };
   const dlg = $('#editor');
-  const totalEl = h('strong', {});
+  const isNew = !workouts.some(x => x.id === draft.id);
+  const totalEl = h('span', {});
   const updateTotal = () => {
     const w = sanitizeWorkout(draft);
     totalEl.textContent = w ? formatTime(totalSeconds(buildTimeline(w))) : '0:00';
   };
 
   const build = () => {
+    // Rebuilding replaces the form, so keep the user's scroll position.
+    const scrollTop = dlg.querySelector('.editor-body')?.scrollTop ?? 0;
     const intervalsList = h('ol', { class: 'intervals' },
       draft.intervals.map((iv, i) => h('li', { class: `interval ${iv.type}` },
         h('div', { class: 'interval-top' },
           h('select', {
-            'aria-label': t('intervals'),
+            class: 'type-select', 'aria-label': t('intervals'),
             onchange: e => { iv.type = e.target.value; build(); },
           },
             h('option', { value: 'work', selected: iv.type === 'work' }, t('work')),
@@ -237,6 +252,8 @@ function openEditor(existing) {
               onclick: () => { [draft.intervals[i - 1], draft.intervals[i]] = [draft.intervals[i], draft.intervals[i - 1]]; build(); } }, '↑'),
             h('button', { type: 'button', class: 'icon', 'aria-label': '↓', disabled: i === draft.intervals.length - 1,
               onclick: () => { [draft.intervals[i + 1], draft.intervals[i]] = [draft.intervals[i], draft.intervals[i + 1]]; build(); } }, '↓'),
+            h('button', { type: 'button', class: 'icon', 'aria-label': t('duplicate'), disabled: draft.intervals.length >= LIMITS.intervals,
+              onclick: () => { draft.intervals.splice(i + 1, 0, { ...iv }); build(); } }, '⧉'),
             h('button', { type: 'button', class: 'icon danger', 'aria-label': t('delete'), disabled: draft.intervals.length === 1,
               onclick: () => { draft.intervals.splice(i, 1); build(); } }, '✕'),
           ),
@@ -265,7 +282,10 @@ function openEditor(existing) {
     },
       h('header', { class: 'editor-head' },
         h('button', { type: 'button', class: 'btn ghost', onclick: () => dlg.close() }, t('cancel')),
-        h('span', { class: 'muted' }, `${t('total')} `, totalEl),
+        h('div', { class: 'editor-title' },
+          h('strong', {}, isNew ? t('newWorkout') : t('editWorkout')),
+          h('span', { class: 'muted small' }, `${t('total')} `, totalEl),
+        ),
         h('button', { type: 'submit', class: 'btn primary' }, t('save')),
       ),
       h('div', { class: 'editor-body stack' },
@@ -275,16 +295,6 @@ function openEditor(existing) {
             type: 'text', value: draft.name, maxLength: LIMITS.name, placeholder: t('untitled'),
             class: 'name-input big', oninput: e => { draft.name = e.target.value; },
           }),
-        ),
-        h('div', { class: 'field' },
-          h('span', { class: 'field-label' }, t('color')),
-          h('div', { class: 'swatches', role: 'radiogroup', 'aria-label': t('color') },
-            COLORS.map(c => h('button', {
-              type: 'button', class: 'swatch', style: { '--c': c }, role: 'radio',
-              'aria-checked': String(draft.color === c), 'aria-label': c,
-              onclick: () => { draft.color = c; build(); },
-            })),
-          ),
         ),
         durationField(t('prepare'), draft.prepare, v => { draft.prepare = v; updateTotal(); }),
         h('h3', { class: 'sub' }, t('intervals')),
@@ -296,8 +306,15 @@ function openEditor(existing) {
         ),
         draft.sets > 1 ? durationField(t('setRest'), draft.setRest, v => { draft.setRest = v; updateTotal(); }) : null,
         durationField(t('cooldown'), draft.cooldown, v => { draft.cooldown = v; updateTotal(); }),
+        isNew ? null : confirmButton(t('deleteWorkout'), () => {
+          workouts = workouts.filter(x => x.id !== draft.id);
+          persistWorkouts();
+          dlg.close();
+          render();
+        }, 'btn danger block'),
       ),
     ));
+    dlg.querySelector('.editor-body').scrollTop = scrollTop;
     updateTotal();
   };
 
@@ -331,14 +348,14 @@ function announce(seg, next) {
   if (seg.phase === 'work') {
     if (settings.sound) cue.work();
     if (settings.vibrate) vibrate([200, 80, 200]);
-    if (voice) speak(seg.label || t('v_go'), getLang());
+    if (voice) say(seg.label || t('v_go'));
   } else {
     if (settings.sound) cue.rest();
     if (settings.vibrate) vibrate(300);
     if (voice) {
       let text = seg.phase === 'prepare' ? t('prepare') : seg.phase === 'cooldown' ? t('cooldown') : t('v_rest');
-      if (next?.phase === 'work' && next.label) text += `. ${t('next')}, ${next.label}`;
-      speak(text, getLang());
+      if (next?.phase === 'work' && next.label) text += t('v_next', { name: next.label });
+      say(text);
     }
   }
 }
@@ -422,11 +439,15 @@ function startRun(workout) {
       if (s.running && settings.voice && seg.phase === 'work' && seg.duration >= 60
           && sec === Math.floor(seg.duration / 2) && run.halfSaid !== s.index) {
         run.halfSaid = s.index;
-        speak(t('v_half'), getLang());
+        say(t('v_half'));
       }
     }
 
-    root.style.setProperty('--phase', PHASE_COLOR[seg.phase]);
+    if (run.color !== PHASE_COLOR[seg.phase]) {
+      run.color = PHASE_COLOR[seg.phase];
+      root.style.setProperty('--phase', run.color);
+      setThemeColor(run.color);
+    }
     els.phase.textContent = t(seg.phase);
     els.time.textContent = formatTime(sec);
     els.label.textContent = seg.label;
@@ -472,11 +493,12 @@ function finishRun() {
   const { workout, runner } = run;
   if (settings.sound) cue.finish();
   if (settings.vibrate) vibrate([300, 100, 300, 100, 500]);
-  if (settings.voice) speak(t('v_done'), getLang());
+  if (settings.voice) say(t('v_done'));
   store.addHistory({ name: workout.name, at: Date.now(), seconds: Math.round(runner.total / 1000), completed: true });
   teardown();
   const root = $('#run');
   root.style.setProperty('--phase', PHASE_COLOR.work);
+  setThemeColor(PHASE_COLOR.work);
   root.replaceChildren(h('div', { class: 'done' },
     h('div', { class: 'done-mark', 'aria-hidden': 'true' }, '✓'),
     h('h2', {}, t('done')),
@@ -504,8 +526,13 @@ function teardown() {
   releaseWakeLock();
 }
 
+function setThemeColor(c) {
+  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', c);
+}
+
 function closeRun() {
   try { speechSynthesis.cancel(); } catch { /* none */ }
+  setThemeColor('#0f1115');
   $('#run').hidden = true;
   document.body.classList.remove('running');
   render();
@@ -564,6 +591,52 @@ function toggle(key) {
   );
 }
 
+function volumeRow() {
+  let previewTimer;
+  return h('label', { class: 'switch-row' },
+    h('span', {}, t('volume')),
+    h('input', {
+      type: 'range', class: 'range', min: 0, max: 100, step: 5, value: settings.volume,
+      'aria-label': t('volume'),
+      oninput: e => {
+        settings.volume = Number(e.target.value);
+        setVolume(settings.volume / 100);
+        store.saveSettings(settings);
+        unlockAudio();
+        clearTimeout(previewTimer);
+        previewTimer = setTimeout(() => cue.tick(), 120);
+      },
+    }),
+  );
+}
+
+function voiceRow() {
+  const select = h('select', {
+    'aria-label': t('voiceName'),
+    onchange: e => { settings.voiceURI = e.target.value; store.saveSettings(settings); },
+  });
+  // Voice lists often load asynchronously, so (re)fill whenever they arrive.
+  const fill = () => {
+    const list = voicesFor(getLang());
+    select.replaceChildren(
+      h('option', { value: '', selected: !settings.voiceURI }, t('voiceAuto')),
+      list.map(v => h('option', { value: v.voiceURI, selected: v.voiceURI === settings.voiceURI }, v.name)),
+    );
+  };
+  fill();
+  const off = onVoicesChanged(() => (select.isConnected ? fill() : off()));
+  return h('div', { class: 'switch-row voice-row' },
+    h('span', {}, t('voiceName')),
+    h('div', { class: 'voice-controls' },
+      select,
+      h('button', {
+        type: 'button', class: 'btn small-btn',
+        onclick: () => say(t('v_sample')),
+      }, t('preview')),
+    ),
+  );
+}
+
 function exportData() {
   const data = { app: 'kiai-timer', version: 1, exportedAt: new Date().toISOString(), workouts, history: store.history() };
   const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }));
@@ -603,7 +676,7 @@ function settingsView() {
   return h('div', { class: 'stack' },
     h('h2', {}, t('settings')),
     h('div', { class: 'panel' },
-      toggle('sound'), toggle('voice'), toggle('vibrate'), toggle('wakeLock'),
+      toggle('sound'), volumeRow(), toggle('voice'), voiceRow(), toggle('vibrate'), toggle('wakeLock'),
       h('label', { class: 'switch-row' },
         h('span', {}, t('language')),
         h('select', {
@@ -619,6 +692,10 @@ function settingsView() {
       h('button', { type: 'button', class: 'btn ghost', onclick: exportData }, t('exportData')),
       h('button', { type: 'button', class: 'btn ghost', onclick: () => fileInput.click() }, t('importData')),
       fileInput,
+      h('button', {
+        type: 'button', class: 'btn ghost',
+        onclick: () => toast(t('presetsAdded', { n: addPresets() })),
+      }, t('restorePresets')),
     ),
     h('p', { class: 'muted small' }, t('about')),
   );

@@ -11,7 +11,13 @@ export const LIMITS = {
   history: 500,
 };
 
-export const COLORS = ['#ff5a3c', '#ffb020', '#22c3a6', '#3d8bfd', '#a66cff', '#ff4f9a'];
+// Flat palette, dark enough for white text on top.
+export const COLORS = ['#e5533d', '#d9730d', '#13896f', '#2a78c8', '#8e4ec6', '#d23f7c'];
+// v1 colours, mapped so existing workouts keep their hue.
+const LEGACY_COLORS = {
+  '#ff5a3c': '#e5533d', '#ffb020': '#d9730d', '#22c3a6': '#13896f',
+  '#3d8bfd': '#2a78c8', '#a66cff': '#8e4ec6', '#ff4f9a': '#d23f7c',
+};
 
 const clampInt = (v, min, max, fallback) => {
   const n = Number(v);
@@ -44,7 +50,7 @@ export function sanitizeWorkout(w) {
   return {
     id: typeof w.id === 'string' && /^[\w-]{1,64}$/.test(w.id) ? w.id : newId(),
     name: cleanStr(w.name, LIMITS.name) || 'Workout',
-    color: COLORS.includes(w.color) ? w.color : COLORS[0],
+    color: COLORS.includes(w.color) ? w.color : LEGACY_COLORS[w.color] ?? COLORS[0],
     prepare: clampInt(w.prepare, 0, LIMITS.seconds, 10),
     rounds: clampInt(w.rounds, 1, LIMITS.rounds, 1),
     sets: clampInt(w.sets, 1, LIMITS.sets, 1),
@@ -71,6 +77,8 @@ export const DEFAULT_SETTINGS = {
   vibrate: true,
   wakeLock: true,
   lang: 'auto',
+  volume: 100,
+  voiceURI: '',  // '' = automatic best voice
 };
 
 export function sanitizeSettings(s) {
@@ -78,6 +86,9 @@ export function sanitizeSettings(s) {
   if (!s || typeof s !== 'object') return out;
   for (const k of ['sound', 'voice', 'vibrate', 'wakeLock']) if (typeof s[k] === 'boolean') out[k] = s[k];
   if (['auto', 'ja', 'en'].includes(s.lang)) out.lang = s.lang;
+  out.volume = clampInt(s.volume, 0, 100, DEFAULT_SETTINGS.volume);
+  // Only ever compared against speechSynthesis.getVoices(), never rendered as HTML.
+  out.voiceURI = cleanStr(s.voiceURI, 300);
   return out;
 }
 

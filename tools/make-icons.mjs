@@ -8,7 +8,7 @@ const OUT = fileURLToPath(new URL('../app/icons/', import.meta.url));
 mkdirSync(OUT, { recursive: true });
 
 const BG = [0x0f, 0x11, 0x15];
-const ACCENT = [0xff, 0x5a, 0x3c];
+const ACCENT = [0xe5, 0x53, 0x3d];
 const DIM = [0x2d, 0x32, 0x40];
 const WHITE = [0xff, 0xff, 0xff];
 

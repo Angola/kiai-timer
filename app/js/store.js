@@ -1,6 +1,6 @@
 import { LIMITS, sanitizeWorkout, sanitizeHistoryEntry, sanitizeSettings } from './model.js';
 
-const KEY = { workouts: 'kiai.workouts', history: 'kiai.history', settings: 'kiai.settings' };
+const KEY = { workouts: 'kiai.workouts', history: 'kiai.history', settings: 'kiai.settings', seeded: 'kiai.seeded' };
 
 function read(key) {
   try {
@@ -36,6 +36,10 @@ export const store = {
     return write(KEY.history, list);
   },
   saveHistory(list) { return write(KEY.history, list.slice(0, LIMITS.history)); },
+
+  /** Whether the built-in presets have been copied into the user's list yet. */
+  seeded() { return read(KEY.seeded) === true; },
+  markSeeded() { return write(KEY.seeded, true); },
 
   settings() { return sanitizeSettings(read(KEY.settings)); },
   saveSettings(s) { return write(KEY.settings, sanitizeSettings(s)); },
