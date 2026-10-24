@@ -1,6 +1,6 @@
 import { LIMITS, sanitizeWorkout, sanitizeHistoryEntry, sanitizeSettings, sanitizeExercises } from './model.js';
 
-const KEY = { workouts: 'kiai.workouts', history: 'kiai.history', settings: 'kiai.settings', seeded: 'kiai.seeded', selected: 'kiai.selected', exercises: 'kiai.exercises' };
+const KEY = { workouts: 'kiai.workouts', history: 'kiai.history', settings: 'kiai.settings', seeded: 'kiai.seeded', exercises: 'kiai.exercises' };
 
 function read(key) {
   try {
@@ -40,13 +40,6 @@ export const store = {
   /** Custom exercise names added by the user. */
   exercises() { return sanitizeExercises(read(KEY.exercises)); },
   saveExercises(list) { return write(KEY.exercises, sanitizeExercises(list)); },
-
-  /** Id of the workout loaded on the home screen. */
-  selected() {
-    const id = read(KEY.selected);
-    return typeof id === 'string' && /^[\w-]{1,64}$/.test(id) ? id : null;
-  },
-  saveSelected(id) { return write(KEY.selected, id); },
 
   /** Whether the built-in presets have been copied into the user's list yet. */
   seeded() { return read(KEY.seeded) === true; },

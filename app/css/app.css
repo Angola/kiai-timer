@@ -128,11 +128,15 @@ main { max-width: 640px; margin: 0 auto; padding: 12px 12px 20px; outline: none;
 .workout-grid > div { display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; align-content: start; }
 .workout-grid .k { color: var(--muted); }
 .workout-grid .v { font-weight: 700; font-variant-numeric: tabular-nums; }
-.check {
-  width: 30px; height: 30px; border-radius: 50%; flex: none; display: grid; place-items: center;
-  background: var(--surface-2); color: var(--muted); font-weight: 800; font-size: .9rem;
-}
-.check.on { background: var(--primary); color: #fff; }
+
+/* workout detail screen */
+.detail-head { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 4px; margin: -4px -4px 0; }
+.detail-title { text-align: center; font-size: 1.15rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.detail-actions { display: flex; }
+.slide-in { animation: slide-in .22s ease-out; }
+.slide-back { animation: slide-back .22s ease-out; }
+@keyframes slide-in { from { transform: translateX(32px); opacity: 0; } }
+@keyframes slide-back { from { transform: translateX(-32px); opacity: 0; } }
 .row-edit { display: flex; gap: 2px; }
 
 /* bottom sheet for editing a value */

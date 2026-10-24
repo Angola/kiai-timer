@@ -78,10 +78,38 @@ const ROW_COLOR = { rounds: '#2f7fd8', sets: '#d9a400' };
 let lastView = null;
 const TAB_ICON = { home: 'timer', history: 'calendar', settings: 'settings' };
 
+let detailId = null;     // workout open on the detail screen (null = list)
+let slide = '';          // 'in' | 'back' animation for the next render
+
 function navigate(v) {
+  if (detailId) { detailId = null; history.replaceState(null, ''); }
   view = v;
   render();
 }
+
+/** Push the workout screen (Back button / gesture returns to the list). */
+function openDetail(id) {
+  detailId = id;
+  listEditing = false;
+  slide = 'in';
+  history.pushState({ detail: id }, '');
+  render();
+}
+
+function closeDetail() {
+  if (history.state?.detail) { history.back(); return; }  // popstate does the rest
+  detailId = null;
+  slide = 'back';
+  render();
+}
+
+window.addEventListener('popstate', e => {
+  const id = e.state?.detail ?? null;
+  detailId = id && workouts.some(w => w.id === id) ? id : null;
+  slide = detailId ? 'in' : 'back';
+  $('#sheet').close();
+  render();
+});
 
 function render() {
   document.title = t('appName');
@@ -94,12 +122,15 @@ function render() {
     btn.setAttribute('aria-current', v === view ? 'page' : 'false');
   }
   const main = $('#view');
-  main.replaceChildren(
-    view === 'home' ? homeView() : view === 'history' ? historyView() : settingsView(),
-  );
-  // Only jump to the top on a real view change, not when redrawing after an edit.
-  if (view !== lastView) {
-    lastView = view;
+  const detail = view === 'home' && detailId ? workouts.find(w => w.id === detailId) : null;
+  if (!detail) detailId = null;
+  const page = detail ? detailView(detail) : view === 'home' ? homeView() : view === 'history' ? historyView() : settingsView();
+  if (slide) { page.classList.add(`slide-${slide}`); slide = ''; }
+  main.replaceChildren(page);
+  // Only jump to the top on a real screen change, not when redrawing after an edit.
+  const screen = detail ? `detail:${detail.id}` : view;
+  if (screen !== lastView) {
+    lastView = screen;
     main.focus({ preventScroll: true });
     window.scrollTo(0, 0);
   }
@@ -192,19 +223,11 @@ function countField(label, value, max, onChange) {
   );
 }
 
-// ---------- home: selected workout's settings + my workouts ----------
+// ---------- home (my workouts) and workout detail ----------
 
-let selectedId = store.selected();
 let listEditing = false;
 
-function selectedWorkout() {
-  return workouts.find(w => w.id === selectedId) ?? workouts[0] ?? null;
-}
-
-function select(id) {
-  selectedId = id;
-  store.saveSelected(id);
-}
+const currentWorkout = () => workouts.find(w => w.id === detailId) ?? null;
 
 /** Mutate a workout by id, re-sanitise, persist and redraw. */
 function updateWorkout(id, mutate) {
@@ -228,10 +251,7 @@ function createWorkout() {
   });
   workouts.unshift(w);
   persistWorkouts();
-  select(w.id);
-  listEditing = false;
-  render();
-  window.scrollTo({ top: 0, behavior: 'smooth' });
+  openDetail(w.id);
   renameWorkout(w);
 }
 
@@ -243,13 +263,13 @@ function duplicate(w) {
   workouts.splice(workouts.findIndex(x => x.id === w.id) + 1, 0, copy);
   persistWorkouts();
   render();
+  return copy;
 }
 
 function removeWorkout(w) {
   workouts = workouts.filter(x => x.id !== w.id);
-  if (selectedId === w.id) select(workouts[0]?.id ?? null);
   persistWorkouts();
-  render();
+  if (detailId === w.id) closeDetail(); else render();
 }
 
 function renameWorkout(w) {
@@ -277,7 +297,7 @@ function editInterval(w, i) {
   const structural = fn => { updateWorkout(w.id, x => fn(x.intervals)); $('#sheet').close(); };
   const typeBtn = type => h('button', {
     type: 'button', class: 'seg-btn', 'aria-pressed': String(iv.type === type), style: { '--dot': PHASE_COLOR[type] },
-    onclick: () => { upd(x => { x.type = type; }); editInterval(selectedWorkout(), i); },
+    onclick: () => { upd(x => { x.type = type; }); editInterval(currentWorkout(), i); },
   }, t(type));
   const last = w.intervals.length - 1;
   openSheet(t('intervalEdit'),
@@ -301,7 +321,7 @@ function editInterval(w, i) {
 /** Pick an interval name from the built-in dictionary or the user's own list (search doubles as "add custom"). */
 function pickExercise(w, i) {
   const current = w.intervals[i].name;
-  const back = () => editInterval(selectedWorkout(), i);
+  const back = () => editInterval(currentWorkout(), i);
   const choose = name => { updateWorkout(w.id, x => { x.intervals[i].name = name; }); back(); };
   let custom = store.exercises();
   const saveCustom = list => { custom = list; store.saveExercises(list); };
@@ -387,7 +407,7 @@ function settingsList(w) {
   );
 }
 
-function workoutRow(w, isSelected) {
+function workoutRow(w) {
   const work = w.intervals.find(iv => iv.type === 'work');
   const rest = w.intervals.find(iv => iv.type === 'rest');
   const many = w.intervals.length > 2;
@@ -397,15 +417,12 @@ function workoutRow(w, isSelected) {
         iconBtn('copy', t('duplicate'), e => { e.stopPropagation(); duplicate(w); }),
         confirmIcon('trash', t('delete'), () => removeWorkout(w)),
       )
-    : h('span', { class: `check ${isSelected ? 'on' : ''}`, 'aria-hidden': 'true' }, '✓');
+    : h('span', { class: 'chev', 'aria-hidden': 'true' }, '›');
   return h('div', {
-    class: `workout-row ${isSelected ? 'selected' : ''}`, role: 'button', tabIndex: 0,
-    'aria-pressed': String(isSelected),
+    class: 'workout-row', role: 'button', tabIndex: 0, 'aria-label': w.name,
     onclick: e => {
       if (listEditing || e.target.closest('.row-edit')) return;
-      select(w.id);
-      render();
-      window.scrollTo({ top: 0, behavior: 'smooth' });
+      openDetail(w.id);
     },
     onkeydown: e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.currentTarget.click(); } },
   },
@@ -429,17 +446,7 @@ function workoutRow(w, isSelected) {
 }
 
 function homeView() {
-  const w = selectedWorkout();
-  if (w && w.id !== selectedId) select(w.id);
   return h('div', { class: 'stack home' },
-    w ? [
-      h('div', { class: 'list-caption' }, t('intervals')),
-      settingsList(w),
-      h('button', { type: 'button', class: 'start-big', 'aria-label': t('start'), title: t('start'), onclick: () => startRun(w) },
-        icon('play'),
-        h('span', { class: 'start-total' }, formatClock(totalSeconds(buildTimeline(w)))),
-      ),
-    ] : null,
     h('div', { class: 'list-caption with-actions' },
       h('span', {}, t('myWorkouts')),
       h('div', { class: 'caption-actions' },
@@ -450,11 +457,30 @@ function homeView() {
       ),
     ),
     workouts.length
-      ? h('div', { class: 'list' }, workouts.map(x => workoutRow(x, x.id === w?.id)))
+      ? h('div', { class: 'list' }, workouts.map(workoutRow))
       : h('div', { class: 'empty stack' },
           h('p', {}, t('noWorkouts')),
           iconBtn('restore', t('restorePresets'), () => { addPresets(); render(); }, 'accent'),
         ),
+  );
+}
+
+function detailView(w) {
+  return h('div', { class: 'stack detail' },
+    h('header', { class: 'detail-head' },
+      iconBtn('left', t('back'), closeDetail),
+      h('strong', { class: 'detail-title' }, w.name),
+      h('div', { class: 'detail-actions' },
+        iconBtn('copy', t('duplicate'), () => { const c = duplicate(w); if (c) { history.replaceState({ detail: c.id }, ''); detailId = c.id; slide = 'in'; render(); } }),
+        confirmIcon('trash', t('deleteWorkout'), () => removeWorkout(w)),
+      ),
+    ),
+    h('div', { class: 'list-caption' }, t('intervals')),
+    settingsList(w),
+    h('button', { type: 'button', class: 'start-big', 'aria-label': t('start'), title: t('start'), onclick: () => startRun(w) },
+      icon('play'),
+      h('span', { class: 'start-total' }, formatClock(totalSeconds(buildTimeline(w)))),
+    ),
   );
 }
 
