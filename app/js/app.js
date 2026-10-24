@@ -343,19 +343,21 @@ function phaseName(seg) {
   return seg.phase === 'work' || seg.phase === 'rest' ? (seg.label || t(seg.phase)) : t(seg.phase);
 }
 
-function announce(seg, next) {
+/** `workoutName` is passed only for the first segment, so the name is read out at the start. */
+function announce(seg, next, workoutName = '') {
   const voice = settings.voice;
+  const intro = workoutName ? t('v_intro', { name: workoutName }) : '';
   if (seg.phase === 'work') {
     if (settings.sound) cue.work();
     if (settings.vibrate) vibrate([200, 80, 200]);
-    if (voice) say(seg.label || t('v_go'));
+    if (voice) say(intro + (seg.label || t('v_go')));
   } else {
     if (settings.sound) cue.rest();
     if (settings.vibrate) vibrate(300);
     if (voice) {
       let text = seg.phase === 'prepare' ? t('prepare') : seg.phase === 'cooldown' ? t('cooldown') : t('v_rest');
       if (next?.phase === 'work' && next.label) text += t('v_next', { name: next.label });
-      say(text);
+      say(intro + text);
     }
   }
 }
@@ -427,7 +429,7 @@ function startRun(workout) {
     const seg = s.segment;
     const sec = Math.ceil(s.remainingMs / 1000);
     if (s.index !== run.lastIndex || forceAnnounce === true) {
-      if (s.index !== run.lastIndex) announce(seg, s.next);
+      if (s.index !== run.lastIndex) announce(seg, s.next, run.lastIndex === -1 ? workout.name : '');
       run.lastIndex = s.index;
       run.lastSec = sec;
     } else if (sec !== run.lastSec) {

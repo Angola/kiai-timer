@@ -81,6 +81,7 @@ const dict = {
     voiceAuto: '自動（おすすめ）',
     preview: '試聴',
     v_next: '。次は、{name}',
+    v_intro: '{name}。',
     v_sample: 'スタート。30秒、がんばりましょう。',
   },
   en: {
@@ -165,6 +166,7 @@ const dict = {
     voiceAuto: 'Automatic (best)',
     preview: 'Preview',
     v_next: '. Next, {name}',
+    v_intro: '{name}. ',
     v_sample: "Go. Thirty seconds, let's push.",
   },
 };
