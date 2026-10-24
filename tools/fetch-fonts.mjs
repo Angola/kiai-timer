@@ -12,7 +12,7 @@ const OUT = fileURLToPath(new URL('app/fonts/', root));
 const OFL = 'https://raw.githubusercontent.com/google/fonts/main/ofl';
 
 // Every character that can appear in built-in UI text.
-const sources = ['app/js/i18n.js', 'app/js/presets.js', 'app/index.html']
+const sources = ['app/js/i18n.js', 'app/js/presets.js', 'app/js/exercises.js', 'app/index.html']
   .map(f => readFileSync(new URL(f, root), 'utf8'));
 let ascii = '';
 for (let c = 0x20; c < 0x7f; c++) ascii += String.fromCharCode(c);

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { sanitizeWorkout, sanitizeSettings, parseBackup, LIMITS } from '../app/js/model.js';
+import { sanitizeWorkout, sanitizeSettings, sanitizeExercises, parseBackup, LIMITS } from '../app/js/model.js';
 
 test('sanitizeWorkout clamps and coerces hostile input', () => {
   const w = sanitizeWorkout({
@@ -24,6 +24,15 @@ test('sanitizeWorkout clamps and coerces hostile input', () => {
 test('v1 colours migrate to the flat palette', () => {
   const w = sanitizeWorkout({ color: '#22c3a6', intervals: [{ type: 'work', seconds: 20 }] });
   assert.equal(w.color, '#13896f');
+});
+
+test('custom exercises are deduped, trimmed and limited', () => {
+  const list = sanitizeExercises(['  スクワット ', 'スクワット', '', 42, null, 'x'.repeat(200), ...Array(300).fill(0).map((_, i) => `e${i}`)]);
+  assert.equal(list[0], 'スクワット');
+  assert.equal(list.filter(n => n === 'スクワット').length, 1);
+  assert.equal(list[1].length, LIMITS.name);
+  assert.equal(list.length, LIMITS.exercises);
+  assert.deepEqual(sanitizeExercises('nope'), []);
 });
 
 test('workout without intervals is rejected', () => {

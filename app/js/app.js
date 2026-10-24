@@ -3,6 +3,8 @@ import { COLORS, LIMITS, newId, sanitizeWorkout, parseBackup } from './model.js'
 import { store } from './store.js';
 import { t, setLang, getLang } from './i18n.js';
 import { presets } from './presets.js';
+import { icon } from './icons.js';
+import { catalog } from './exercises.js';
 import { unlockAudio, cue, speak, vibrate, setVolume, voicesFor, onVoicesChanged } from './audio.js';
 
 // ---------- tiny DOM helper (text only, never innerHTML) ----------
@@ -74,6 +76,7 @@ const ROW_COLOR = { rounds: '#2f7fd8', sets: '#d9a400' };
 // ---------- navigation ----------
 
 let lastView = null;
+const TAB_ICON = { home: 'timer', history: 'calendar', settings: 'settings' };
 
 function navigate(v) {
   view = v;
@@ -83,8 +86,12 @@ function navigate(v) {
 function render() {
   document.title = t('appName');
   for (const btn of document.querySelectorAll('#tabs button')) {
-    btn.textContent = t(btn.dataset.view === 'home' ? 'workouts' : btn.dataset.view);
-    btn.setAttribute('aria-current', btn.dataset.view === view ? 'page' : 'false');
+    const v = btn.dataset.view;
+    const label = t(v === 'home' ? 'workouts' : v);
+    if (!btn.firstChild) btn.append(icon(TAB_ICON[v]));
+    btn.setAttribute('aria-label', label);
+    btn.title = label;
+    btn.setAttribute('aria-current', v === view ? 'page' : 'false');
   }
   const main = $('#view');
   main.replaceChildren(
@@ -101,9 +108,10 @@ function render() {
 // ---------- shared bits ----------
 
 /** Settings-style row: dot · title/subtitle · big value · chevron. */
-function listRow({ dot, title, sub, value, valueClass = '', onclick }) {
+function listRow({ dot, iconName, title, sub, value, valueClass = '', onclick }) {
   return h('button', { type: 'button', class: 'list-row', onclick },
     dot ? h('span', { class: 'dot', style: { '--dot': dot }, 'aria-hidden': 'true' }) : null,
+    iconName ? h('span', { class: 'row-icon' }, icon(iconName)) : null,
     h('span', { class: 'row-text' },
       h('span', { class: 'row-title' }, title),
       sub ? h('span', { class: 'row-sub' }, sub) : null,
@@ -113,30 +121,34 @@ function listRow({ dot, title, sub, value, valueClass = '', onclick }) {
   );
 }
 
-const textBtn = (label, onclick, cls = '') =>
-  h('button', { type: 'button', class: `text-btn ${cls}`, onclick }, label);
+/** Icon-only button; the label is exposed to screen readers and as a tooltip. */
+function iconBtn(name, label, onclick, cls = '') {
+  return h('button', { type: 'button', class: `icon-btn ${cls}`, 'aria-label': label, title: label, onclick }, icon(name));
+}
 
-/** Text button that needs a second tap within 3s. Avoids blocking confirm() dialogs. */
-function confirmText(label, onConfirm, confirmLabel = t('confirmDelete')) {
+/** Destructive icon button: first tap arms it (red + hint), second tap within 3s confirms. */
+function confirmIcon(name, label, onConfirm, hint = t('confirmDelete')) {
   let timer;
-  const btn = textBtn(label, () => {
+  const btn = iconBtn(name, label, e => {
+    e.stopPropagation();
     if (btn.classList.contains('armed')) { clearTimeout(timer); onConfirm(); return; }
     btn.classList.add('armed');
-    btn.textContent = confirmLabel;
-    timer = setTimeout(() => { btn.classList.remove('armed'); btn.textContent = label; }, 3000);
+    toast(hint);
+    timer = setTimeout(() => btn.classList.remove('armed'), 3000);
   }, 'danger');
   return btn;
 }
 
-/** Bottom sheet for editing one value. */
-function openSheet(title, ...content) {
+/** Bottom sheet for editing one value. `head` is a title or { title, back }. */
+function openSheet(head, ...content) {
+  const { title, back } = typeof head === 'string' ? { title: head } : head;
   const dlg = $('#sheet');
   // autofocus on the container so opening doesn't draw a focus ring on "Done".
   dlg.replaceChildren(h('div', { class: 'sheet-inner', tabIndex: -1, autofocus: true },
     h('header', { class: 'sheet-head' },
-      h('span', {}),
+      back ? iconBtn('left', t('back'), back) : h('span', {}),
       h('strong', {}, title),
-      textBtn(t('doneBtn'), () => dlg.close(), 'accent'),
+      iconBtn('check', t('doneBtn'), () => dlg.close(), 'accent'),
     ),
     h('div', { class: 'sheet-body stack' }, ...content),
   ));
@@ -270,19 +282,68 @@ function editInterval(w, i) {
   const last = w.intervals.length - 1;
   openSheet(t('intervalEdit'),
     h('div', { class: 'segmented', role: 'group' }, typeBtn('work'), typeBtn('rest')),
-    h('input', {
-      type: 'text', class: 'name-input', value: iv.name, maxLength: LIMITS.name,
-      placeholder: t(iv.type === 'work' ? 'exerciseName' : 'rest'), 'aria-label': t('name'),
-      oninput: e => upd(x => { x.name = e.target.value; }),
-    }),
+    h('div', { class: 'list' },
+      listRow({
+        title: t('exercise'), value: iv.name || t('noName'), valueClass: 'text',
+        onclick: () => pickExercise(w, i),
+      }),
+    ),
     durationField(t(iv.type), iv.seconds, v => upd(x => { x.seconds = v; }), { min: 1 }),
     h('div', { class: 'sheet-actions' },
-      i > 0 ? textBtn(t('moveUp'), () => structural(a => { [a[i - 1], a[i]] = [a[i], a[i - 1]]; })) : null,
-      i < last ? textBtn(t('moveDown'), () => structural(a => { [a[i + 1], a[i]] = [a[i], a[i + 1]]; })) : null,
-      w.intervals.length < LIMITS.intervals ? textBtn(t('duplicate'), () => structural(a => { a.splice(i + 1, 0, { ...a[i] }); })) : null,
-      last > 0 ? confirmText(t('delete'), () => structural(a => { a.splice(i, 1); })) : null,
+      i > 0 ? iconBtn('up', t('moveUp'), () => structural(a => { [a[i - 1], a[i]] = [a[i], a[i - 1]]; })) : null,
+      i < last ? iconBtn('down', t('moveDown'), () => structural(a => { [a[i + 1], a[i]] = [a[i], a[i + 1]]; })) : null,
+      w.intervals.length < LIMITS.intervals ? iconBtn('copy', t('duplicate'), () => structural(a => { a.splice(i + 1, 0, { ...a[i] }); })) : null,
+      last > 0 ? confirmIcon('trash', t('delete'), () => structural(a => { a.splice(i, 1); })) : null,
     ),
   );
+}
+
+/** Pick an interval name from the built-in dictionary or the user's own list (search doubles as "add custom"). */
+function pickExercise(w, i) {
+  const current = w.intervals[i].name;
+  const back = () => editInterval(selectedWorkout(), i);
+  const choose = name => { updateWorkout(w.id, x => { x.intervals[i].name = name; }); back(); };
+  let custom = store.exercises();
+  const saveCustom = list => { custom = list; store.saveExercises(list); };
+
+  const search = h('input', {
+    type: 'search', class: 'name-input', maxLength: LIMITS.name, enterKeyHint: 'done',
+    placeholder: t('searchOrAdd'), 'aria-label': t('searchOrAdd'), autocomplete: 'off',
+  });
+  const body = h('div', { class: 'ex-list stack' });
+  const chip = (name, removable, label = name) => h('span', { class: 'chip-wrap' },
+    h('button', { type: 'button', class: `chip ${name === current ? 'on' : ''}`, onclick: () => choose(name) }, label),
+    removable ? iconBtn('close', `${t('delete')}: ${name}`, () => { saveCustom(custom.filter(x => x !== name)); draw(); }, 'chip-x') : null,
+  );
+  const section = (title, chips) => h('div', { class: 'ex-section' }, h('div', { class: 'ex-title' }, title), h('div', { class: 'chips' }, chips));
+
+  function draw() {
+    const q = search.value.trim().slice(0, LIMITS.name);
+    const match = n => !q || n.toLowerCase().includes(q.toLowerCase());
+    const groups = catalog(getLang());
+    const known = new Set([...custom, ...groups.flatMap(g => g.names)]);
+    const out = [];
+    if (q && !known.has(q)) {
+      out.push(h('button', {
+        type: 'button', class: 'chip add-chip',
+        onclick: () => { saveCustom([q, ...custom]); choose(q); },
+      }, icon('plus'), t('addCustom', { name: q })));
+    }
+    if (!q) out.push(h('div', { class: 'chips' }, chip('', false, t('noName'))));
+    const mine = custom.filter(match);
+    if (mine.length) out.push(section(t('myExercises'), mine.map(n => chip(n, true))));
+    for (const g of groups) {
+      const names = g.names.filter(match);
+      if (names.length) out.push(section(t(`cat_${g.id}`), names.map(n => chip(n, false))));
+    }
+    body.replaceChildren(...out);
+  }
+  search.addEventListener('input', draw);
+  search.addEventListener('keydown', e => {
+    if (e.key === 'Enter') { e.preventDefault(); body.querySelector('.add-chip, .chip:not(.on)')?.click(); }
+  });
+  openSheet({ title: t('exercise'), back }, search, body);
+  draw();
 }
 
 function addInterval(w, type) {
@@ -304,8 +365,8 @@ function settingsList(w) {
       onclick: () => editInterval(w, i),
     })),
     h('div', { class: 'list-add' },
-      textBtn(t('addWork'), () => addInterval(w, 'work'), 'accent'),
-      textBtn(t('addRest'), () => addInterval(w, 'rest'), 'accent'),
+      iconBtn('plus', t('addWork'), () => addInterval(w, 'work'), 'add work'),
+      iconBtn('plus', t('addRest'), () => addInterval(w, 'rest'), 'add rest'),
     ),
     listRow({
       dot: ROW_COLOR.rounds, title: t('roundsCount'), sub: t('roundsSub', { list: perRound }), value: String(w.rounds),
@@ -333,8 +394,8 @@ function workoutRow(w, isSelected) {
   const cell = (label, value) => [h('span', { class: 'k' }, label), h('span', { class: 'v' }, value)];
   const right = listEditing
     ? h('div', { class: 'row-edit' },
-        textBtn(t('duplicate'), e => { e.stopPropagation(); duplicate(w); }),
-        confirmText(t('delete'), () => removeWorkout(w)),
+        iconBtn('copy', t('duplicate'), e => { e.stopPropagation(); duplicate(w); }),
+        confirmIcon('trash', t('delete'), () => removeWorkout(w)),
       )
     : h('span', { class: `check ${isSelected ? 'on' : ''}`, 'aria-hidden': 'true' }, '✓');
   return h('div', {
@@ -374,23 +435,25 @@ function homeView() {
     w ? [
       h('div', { class: 'list-caption' }, t('intervals')),
       settingsList(w),
-      h('button', { type: 'button', class: 'start-big', onclick: () => startRun(w) },
-        h('span', {}, `▶ ${t('start')}`),
+      h('button', { type: 'button', class: 'start-big', 'aria-label': t('start'), title: t('start'), onclick: () => startRun(w) },
+        icon('play'),
         h('span', { class: 'start-total' }, formatClock(totalSeconds(buildTimeline(w)))),
       ),
     ] : null,
     h('div', { class: 'list-caption with-actions' },
       h('span', {}, t('myWorkouts')),
       h('div', { class: 'caption-actions' },
-        textBtn(t('newWorkout'), createWorkout, 'accent'),
-        workouts.length ? textBtn(listEditing ? t('doneBtn') : t('edit'), () => { listEditing = !listEditing; render(); }, 'accent') : null,
+        iconBtn('plus', t('newWorkout'), createWorkout, 'accent'),
+        workouts.length
+          ? iconBtn(listEditing ? 'check' : 'edit', listEditing ? t('doneBtn') : t('edit'), () => { listEditing = !listEditing; render(); }, 'accent')
+          : null,
       ),
     ),
     workouts.length
       ? h('div', { class: 'list' }, workouts.map(x => workoutRow(x, x.id === w?.id)))
       : h('div', { class: 'empty stack' },
           h('p', {}, t('noWorkouts')),
-          textBtn(t('restorePresets'), () => { addPresets(); render(); }, 'accent'),
+          iconBtn('restore', t('restorePresets'), () => { addPresets(); render(); }, 'accent'),
         ),
   );
 }
@@ -464,15 +527,13 @@ function startRun(workout) {
     els.toggleIcon,
   );
 
-  const stopBtn = h('button', {
-    type: 'button', class: 'text-btn', onclick: () => {
-      if (runner.finished || !runner.started || runner.snapshot().elapsedTotalMs < 3000) return endRun(false);
-      if (stopBtn.classList.contains('armed')) return endRun(false);
-      stopBtn.classList.add('armed');
-      stopBtn.textContent = t('confirmStop');
-      setTimeout(() => { stopBtn.classList.remove('armed'); stopBtn.textContent = t('stop'); }, 3000);
-    },
-  }, t('stop'));
+  const stopBtn = iconBtn('close', t('stop'), () => {
+    if (runner.finished || !runner.started || runner.snapshot().elapsedTotalMs < 3000) return endRun(false);
+    if (stopBtn.classList.contains('armed')) return endRun(false);
+    stopBtn.classList.add('armed');
+    toast(t('confirmStop'));
+    setTimeout(() => stopBtn.classList.remove('armed'), 3000);
+  });
 
   const root = $('#run');
   const nextBlock = h('section', { class: 'run-next' }, els.nextLabel, els.nextTime);
@@ -488,8 +549,8 @@ function startRun(workout) {
       h('div', { class: 'foot-stat' }, els.roundsLeft, h('div', { class: 'foot-label' }, t('roundsLeft'))),
       h('div', { class: 'foot-toggle' }, toggleBtn, els.toggleLabel),
       h('div', { class: 'foot-skip' },
-        textBtn(t('previous'), () => { runner.prev(); frame(true); }),
-        textBtn(t('skip'), () => { runner.skip(); frame(true); }),
+        iconBtn('prev', t('previous'), () => { runner.prev(); frame(true); }),
+        iconBtn('next', t('skip'), () => { runner.skip(); frame(true); }),
       ),
     ),
   );
@@ -541,7 +602,11 @@ function startRun(workout) {
     els.roundsLeft.textContent = String(left);
     ring.setAttribute('stroke-dashoffset', String(C * (1 - s.elapsedTotalMs / s.totalMs)));
     const running = s.running || !runner.started;
-    els.toggleIcon.className = `toggle-icon ${s.running ? 'pause' : 'play'}`;
+    const toggleState = s.running ? 'pause' : 'play';
+    if (run.toggleState !== toggleState) {
+      run.toggleState = toggleState;
+      els.toggleIcon.replaceChildren(icon(toggleState));
+    }
     els.toggleLabel.textContent = s.running ? t('pause') : t('resume');
     toggleBtn.setAttribute('aria-label', s.running ? t('pause') : t('resume'));
     root.classList.toggle('paused', !running);
@@ -584,7 +649,7 @@ function finishRun() {
     h('div', { class: 'done-mark', 'aria-hidden': 'true' }, '✓'),
     h('h2', {}, t('done')),
     h('p', { class: 'muted' }, `${workout.name} · ${formatTime(runner.total / 1000)}`),
-    h('button', { type: 'button', class: 'start-big done-btn', onclick: closeRun }, t('back')),
+    iconBtn('check', t('back'), closeRun, 'done-btn'),
   ));
   root.querySelector('button').focus();
 }
@@ -634,25 +699,122 @@ document.addEventListener('keydown', e => {
   else if (e.code === 'Escape') endRun(false);
 });
 
-// ---------- history ----------
+// ---------- history: summary + calendar ----------
+
+let calMonth = null;  // first day of the month being shown
+let calDay = null;    // selected day key (YYYY-MM-DD)
+
+const dayKey = d =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
+/** Consecutive training days ending today (or yesterday, so the streak survives until tonight). */
+function streakDays(days) {
+  const d = new Date();
+  if (!days.has(dayKey(d))) d.setDate(d.getDate() - 1);
+  let n = 0;
+  while (days.has(dayKey(d))) { n++; d.setDate(d.getDate() - 1); }
+  return n;
+}
+
+function statTile(label, value, sub) {
+  return h('div', { class: 'stat' },
+    h('div', { class: 'stat-label' }, label),
+    h('div', { class: 'stat-value' }, value),
+    sub ? h('div', { class: 'stat-sub' }, sub) : null,
+  );
+}
 
 function historyView() {
   const list = store.history();
-  const fmt = new Intl.DateTimeFormat(getLang(), { dateStyle: 'medium', timeStyle: 'short' });
+  const now = new Date();
+  calMonth ??= new Date(now.getFullYear(), now.getMonth(), 1);
+  const y = calMonth.getFullYear();
+  const m = calMonth.getMonth();
+
+  const byDay = new Map();
+  for (const e of list) {
+    const k = dayKey(new Date(e.at));
+    if (!byDay.has(k)) byDay.set(k, []);
+    byDay.get(k).push(e);
+  }
+  const sum = arr => arr.reduce((s, e) => s + e.seconds, 0);
+  const weekStart = new Date(now.getFullYear(), now.getMonth(), now.getDate() - now.getDay()).getTime();
+  const week = list.filter(e => e.at >= weekStart);
+  const month = list.filter(e => { const d = new Date(e.at); return d.getFullYear() === y && d.getMonth() === m; });
+  const monthDays = new Set(month.map(e => dayKey(new Date(e.at)))).size;
+
+  // Default selection: today, else the latest trained day in the shown month.
+  if (!calDay || !calDay.startsWith(`${y}-${String(m + 1).padStart(2, '0')}`)) {
+    const today = dayKey(now);
+    const monthKeys = [...byDay.keys()].filter(k => k.startsWith(`${y}-${String(m + 1).padStart(2, '0')}`)).sort();
+    calDay = today.startsWith(`${y}-${String(m + 1).padStart(2, '0')}`) ? today : monthKeys.at(-1) ?? null;
+  }
+
+  const lang = getLang();
+  const monthFmt = new Intl.DateTimeFormat(lang, { year: 'numeric', month: 'long' });
+  const wdFmt = new Intl.DateTimeFormat(lang, { weekday: 'narrow' });
+  const dayFmt = new Intl.DateTimeFormat(lang, { month: 'long', day: 'numeric', weekday: 'short' });
+  const timeFmt = new Intl.DateTimeFormat(lang, { hour: '2-digit', minute: '2-digit' });
+
+  const shiftMonth = delta => { calMonth = new Date(y, m + delta, 1); calDay = null; render(); };
+
+  // Sunday-first month grid.
+  const first = new Date(y, m, 1);
+  const daysInMonth = new Date(y, m + 1, 0).getDate();
+  const cells = [];
+  for (let i = 0; i < first.getDay(); i++) cells.push(h('span', { class: 'cal-cell empty' }));
+  for (let d = 1; d <= daysInMonth; d++) {
+    const date = new Date(y, m, d);
+    const k = dayKey(date);
+    const entries = byDay.get(k) ?? [];
+    const done = entries.some(e => e.completed);
+    cells.push(h('button', {
+      type: 'button',
+      class: ['cal-cell', entries.length ? (done ? 'trained' : 'partial') : '', k === dayKey(now) ? 'today' : '', k === calDay ? 'selected' : '']
+        .filter(Boolean).join(' '),
+      'aria-label': `${dayFmt.format(date)} ${entries.length ? t('sessionsN', { n: entries.length }) : ''}`.trim(),
+      'aria-pressed': String(k === calDay),
+      onclick: () => { calDay = k; render(); },
+    }, String(d)));
+  }
+
+  const selected = (calDay && byDay.get(calDay)) ?? [];
+  const [sy, sm, sd] = (calDay ?? '').split('-').map(Number);
+
   return h('div', { class: 'stack' },
-    h('div', { class: 'section-head' },
-      h('h2', {}, t('history')),
-      list.length ? confirmText(t('clearHistory'), () => { store.saveHistory([]); render(); }) : null,
+    h('div', { class: 'list-caption with-actions' },
+      h('span', {}, t('summary')),
+      h('div', { class: 'caption-actions' },
+        list.length ? confirmIcon('trash', t('clearHistory'), () => { store.saveHistory([]); render(); }) : null,
+      ),
     ),
-    list.length
-      ? h('ul', { class: 'history' }, list.map(e => h('li', {},
-          h('div', {}, h('strong', {}, e.name), h('div', { class: 'muted' }, fmt.format(e.at))),
+    h('div', { class: 'stats' },
+      statTile(t('thisWeek'), t('sessionsN', { n: week.length }), formatClock(sum(week))),
+      statTile(monthFmt.format(calMonth), t('daysN', { n: monthDays }), `${t('sessionsN', { n: month.length })} · ${formatClock(sum(month))}`),
+      statTile(t('streak'), t('daysN', { n: streakDays(new Set(byDay.keys())) }), null),
+      statTile(t('allTime'), t('sessionsN', { n: list.length }), formatClock(sum(list))),
+    ),
+    h('div', { class: 'calendar' },
+      h('div', { class: 'cal-head' },
+        iconBtn('left', t('prevMonth'), () => shiftMonth(-1)),
+        h('strong', {}, monthFmt.format(calMonth)),
+        iconBtn('right', t('nextMonth'), () => shiftMonth(1)),
+      ),
+      h('div', { class: 'cal-grid cal-weekdays', 'aria-hidden': 'true' },
+        Array.from({ length: 7 }, (_, i) => h('span', {}, wdFmt.format(new Date(2026, 1, 1 + i)))),  // 2026-02-01 is a Sunday
+      ),
+      h('div', { class: 'cal-grid' }, cells),
+    ),
+    calDay ? h('div', { class: 'list-caption' }, dayFmt.format(new Date(sy, sm - 1, sd))) : null,
+    selected.length
+      ? h('ul', { class: 'history' }, selected.map(e => h('li', {},
+          h('div', {}, h('strong', {}, e.name), h('div', { class: 'muted' }, timeFmt.format(e.at))),
           h('div', { class: 'history-right' },
-            h('span', {}, formatTime(e.seconds)),
+            h('span', {}, formatClock(e.seconds)),
             h('span', { class: `badge ${e.completed ? 'ok' : ''}` }, e.completed ? t('completed') : t('stopped')),
           ),
         )))
-      : h('p', { class: 'empty' }, t('noHistory')),
+      : h('p', { class: 'empty' }, list.length ? t('noSessionsDay') : t('noHistory')),
   );
 }
 
@@ -710,16 +872,16 @@ function voiceRow() {
     h('span', {}, t('voiceName')),
     h('div', { class: 'voice-controls' },
       select,
-      h('button', {
-        type: 'button', class: 'btn small-btn',
-        onclick: () => say(t('v_sample')),
-      }, t('preview')),
+      iconBtn('speaker', t('preview'), () => say(t('v_sample')), 'accent'),
     ),
   );
 }
 
 function exportData() {
-  const data = { app: 'kiai-timer', version: 1, exportedAt: new Date().toISOString(), workouts, history: store.history() };
+  const data = {
+    app: 'kiai-timer', version: 1, exportedAt: new Date().toISOString(),
+    workouts, history: store.history(), exercises: store.exercises(),
+  };
   const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }));
   const a = h('a', { href: url, download: `kiai-timer-${new Date().toISOString().slice(0, 10)}.json` });
   document.body.append(a);
@@ -731,7 +893,8 @@ function exportData() {
 async function importData(file) {
   try {
     if (file.size > 1_000_000) throw new Error('too large');
-    const { workouts: incoming, history } = parseBackup(await file.text());
+    const { workouts: incoming, history, exercises } = parseBackup(await file.text());
+    if (exercises.length) store.saveExercises([...store.exercises(), ...exercises]);
     const ids = new Set(workouts.map(w => w.id));
     for (const w of incoming) {
       if (ids.has(w.id)) w.id = newId();
@@ -770,9 +933,9 @@ function settingsView() {
       ),
     ),
     h('div', { class: 'list' },
-      listRow({ title: t('exportData'), onclick: exportData }),
-      listRow({ title: t('importData'), onclick: () => fileInput.click() }),
-      listRow({ title: t('restorePresets'), onclick: () => { toast(t('presetsAdded', { n: addPresets() })); } }),
+      listRow({ iconName: 'download', title: t('exportData'), onclick: exportData }),
+      listRow({ iconName: 'upload', title: t('importData'), onclick: () => fileInput.click() }),
+      listRow({ iconName: 'restore', title: t('restorePresets'), onclick: () => { toast(t('presetsAdded', { n: addPresets() })); } }),
     ),
     fileInput,
     h('p', { class: 'muted small' }, t('about')),

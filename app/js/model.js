@@ -9,6 +9,7 @@ export const LIMITS = {
   sets: 20,
   workouts: 200,
   history: 500,
+  exercises: 100,
 };
 
 // Flat palette, dark enough for white text on top.
@@ -92,6 +93,18 @@ export function sanitizeSettings(s) {
   return out;
 }
 
+/** User-defined exercise names: unique, non-empty, length/count limited. */
+export function sanitizeExercises(list) {
+  if (!Array.isArray(list)) return [];
+  const out = [];
+  for (const v of list) {
+    const name = cleanStr(v, LIMITS.name);
+    if (name && !out.includes(name)) out.push(name);
+    if (out.length >= LIMITS.exercises) break;
+  }
+  return out;
+}
+
 /** Parse an exported backup file. Throws on anything unexpected. */
 export function parseBackup(text) {
   if (typeof text !== 'string' || text.length > 1_000_000) throw new Error('too large');
@@ -100,5 +113,5 @@ export function parseBackup(text) {
   const workouts = data.workouts.slice(0, LIMITS.workouts).map(sanitizeWorkout).filter(Boolean);
   const history = (Array.isArray(data.history) ? data.history : [])
     .slice(0, LIMITS.history).map(sanitizeHistoryEntry).filter(Boolean);
-  return { workouts, history };
+  return { workouts, history, exercises: sanitizeExercises(data.exercises) };
 }

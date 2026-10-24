@@ -14,6 +14,8 @@ const ASSETS = [
   './js/i18n.js',
   './js/presets.js',
   './js/audio.js',
+  './js/icons.js',
+  './js/exercises.js',
   './icons/icon.svg',
   './icons/icon-192.png',
   './icons/icon-512.png',
