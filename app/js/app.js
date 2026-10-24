@@ -83,7 +83,7 @@ if (!store.seeded()) {
 }
 
 const PHASE_COLOR = {
-  prepare: '#d9730d', work: '#e5533d', rest: '#13896f', setRest: '#2a78c8', cooldown: '#8e4ec6',
+  prepare: '#b85400', work: '#c4122f', rest: '#00745c', setRest: '#1650a6', cooldown: '#5c2a9d',
 };
 
 function summary(w) {
@@ -532,7 +532,7 @@ function setThemeColor(c) {
 
 function closeRun() {
   try { speechSynthesis.cancel(); } catch { /* none */ }
-  setThemeColor('#0f1115');
+  setThemeColor('#0c0e13');
   $('#run').hidden = true;
   document.body.classList.remove('running');
   render();

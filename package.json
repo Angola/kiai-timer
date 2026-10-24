@@ -9,6 +9,7 @@
   "scripts": {
     "start": "node tools/serve.mjs",
     "test": "node --test \"test/*.test.js\"",
-    "icons": "node tools/make-icons.mjs"
+    "icons": "node tools/make-icons.mjs",
+    "fonts": "node tools/fetch-fonts.mjs"
   }
 }

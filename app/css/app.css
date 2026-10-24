@@ -1,3 +1,12 @@
+/* Self-hosted M PLUS 1 (OFL), subset to UI glyphs by tools/fetch-fonts.mjs.
+   Characters outside the subset (e.g. user-typed kanji) fall back per glyph. */
+@font-face {
+  font-family: "Kiai";
+  src: url("../fonts/mplus1.woff2") format("woff2");
+  font-weight: 100 900;
+  font-display: swap;
+}
+
 /* Glossy theme: solid surfaces with a hard diagonal sheen line (light upper-left,
    shade lower-right) instead of soft gradients. */
 :root {
@@ -6,20 +15,21 @@
   --surface-2: #262b36;
   --text: #f3f5f9;
   --muted: #9ba4b6;
-  --primary: #e5533d;
-  --danger: #e5484d;
-  --work: #e5533d;
-  --rest: #13896f;
+  --primary: #c4122f;
+  --danger: #d6293e;
+  --work: #c4122f;
+  --rest: #00745c;
   --radius: 16px;
   --line: rgb(255 255 255 / .07);
   --hi: inset 0 1px 0 rgb(255 255 255 / .09);
   /* hard-edged diagonal: no blending across the line */
-  --shine: linear-gradient(115deg, rgb(255 255 255 / .13) 0 44%, rgb(0 0 0 / .08) 44% 100%);
+  --shine: linear-gradient(115deg, rgb(255 255 255 / .1) 0 44%, rgb(0 0 0 / .12) 44% 100%);
   --glass: linear-gradient(115deg, rgb(255 255 255 / .06) 0 44%, rgb(255 255 255 / 0) 44% 100%);
   --safe-top: env(safe-area-inset-top, 0px);
   --safe-bottom: env(safe-area-inset-bottom, 0px);
   color-scheme: dark;
-  font-family: system-ui, -apple-system, "Segoe UI", "Hiragino Sans", "Noto Sans JP", sans-serif;
+  font-family: "Kiai", "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Noto Sans JP", "Yu Gothic UI", system-ui, sans-serif;
+  font-feature-settings: "palt";
   -webkit-text-size-adjust: 100%;
 }
 
@@ -180,7 +190,7 @@ main { max-width: 720px; margin: 0 auto; padding: 16px; outline: none; }
   padding: calc(12px + var(--safe-top)) 20px calc(20px + var(--safe-bottom));
   color: #fff;
   background-color: var(--phase);
-  background-image: linear-gradient(118deg, rgb(255 255 255 / .14) 0 40%, rgb(0 0 0 / .1) 40% 100%);
+  background-image: linear-gradient(118deg, rgb(255 255 255 / .09) 0 40%, rgb(0 0 0 / .14) 40% 100%);
   transition: background-color .4s;
   user-select: none;
 }
