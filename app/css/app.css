@@ -1,8 +1,16 @@
-/* Self-hosted M PLUS 1 (OFL), subset to UI glyphs by tools/fetch-fonts.mjs.
-   Characters outside the subset (e.g. user-typed kanji) fall back per glyph. */
+/* Self-hosted OFL fonts, subset to UI glyphs by tools/fetch-fonts.mjs:
+   Inter for digits/Latin, Noto Sans JP for Japanese (both Hiragino-like).
+   Apple devices use the real Hiragino first. Characters outside the subsets
+   (e.g. user-typed kanji) fall back per glyph. */
 @font-face {
-  font-family: "Kiai";
-  src: url("../fonts/mplus1.woff2") format("woff2");
+  font-family: "Kiai Latin";
+  src: url("../fonts/inter.woff2") format("woff2");
+  font-weight: 100 900;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Kiai JP";
+  src: url("../fonts/notosansjp.woff2") format("woff2");
   font-weight: 100 900;
   font-display: swap;
 }
@@ -28,7 +36,7 @@
   --safe-top: env(safe-area-inset-top, 0px);
   --safe-bottom: env(safe-area-inset-bottom, 0px);
   color-scheme: dark;
-  font-family: "Kiai", "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Noto Sans JP", "Yu Gothic UI", system-ui, sans-serif;
+  font-family: "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Kiai Latin", "Kiai JP", "Noto Sans JP", "Yu Gothic UI", system-ui, sans-serif;
   font-feature-settings: "palt";
   -webkit-text-size-adjust: 100%;
 }

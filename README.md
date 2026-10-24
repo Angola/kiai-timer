@@ -25,7 +25,7 @@ An offline-first interval & workout timer PWA. Build Tabata, HIIT, circuits or b
 npm start      # http://localhost:5173/ (依存パッケージなし)
 npm test       # node:test によるユニットテスト
 npm run icons  # PNG アイコンを再生成
-npm run fonts  # UI フォント（M PLUS 1, OFL）を UI で使う文字だけにサブセットして再取得
+npm run fonts  # UI フォント（Inter + Noto Sans JP, OFL）を UI で使う文字だけにサブセットして再取得
 ```
 
 ## セキュリティ / Security
@@ -58,4 +58,4 @@ iOS の PWA は画面ロック中に JavaScript が停止するため、ロッ�
 
 ## License
 
-MIT。フォント M PLUS 1 は SIL Open Font License 1.1（`app/fonts/OFL.txt`）。
+MIT。フォント Inter / Noto Sans JP は SIL Open Font License 1.1（`app/fonts/OFL-*.txt`）。
