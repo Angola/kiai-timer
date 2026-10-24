@@ -19,14 +19,15 @@
    (light upper-left, shade lower-right) is used only on backgrounds. */
 :root {
   --bg: #0c0e13;
-  --surface: #191c23;
-  --surface-2: #262a33;
+  --surface: #1e222b;
+  --surface-2: #2b303b;
   --text: #f3f5f9;
   --muted: #8f98aa;
   --primary: #c4122f;
   --accent: #ff5c72;
   --danger: #ff5c5c;
-  --line: rgb(255 255 255 / .07);
+  --line: rgb(255 255 255 / .08);
+  --edge: 1px solid rgb(255 255 255 / .1);
   --sheen: linear-gradient(118deg, rgb(255 255 255 / .09) 0 40%, rgb(0 0 0 / .14) 40% 100%);
   --safe-top: env(safe-area-inset-top, 0px);
   --safe-bottom: env(safe-area-inset-bottom, 0px);
@@ -39,7 +40,7 @@
 * { box-sizing: border-box; }
 html, body { margin: 0; color: var(--text); background: var(--bg); }
 body {
-  background: linear-gradient(118deg, rgb(255 255 255 / .06) 0 42%, rgb(255 255 255 / 0) 42% 100%) fixed, var(--bg);
+  background: linear-gradient(118deg, rgb(255 255 255 / .03) 0 42%, rgb(255 255 255 / 0) 42% 100%) fixed, var(--bg);
   min-height: 100dvh; padding-bottom: calc(68px + var(--safe-bottom)); -webkit-tap-highlight-color: transparent;
 }
 body.running { overflow: hidden; }
@@ -60,7 +61,7 @@ h2 { font-size: 1.15rem; margin: 0; }
 
 main { max-width: 640px; margin: 0 auto; padding: 12px 12px 20px; outline: none; }
 .stack { display: flex; flex-direction: column; gap: 12px; }
-.empty { color: var(--muted); padding: 24px; text-align: center; border-radius: 14px; background: var(--surface); align-items: center; }
+.empty { color: var(--muted); padding: 24px; text-align: center; border-radius: 14px; background: var(--surface); border: var(--edge); align-items: center; }
 .empty p { margin: 0; }
 
 /* icon buttons (all actions are icons; labels live in aria-label/title) */
@@ -92,7 +93,7 @@ main { max-width: 640px; margin: 0 auto; padding: 12px 12px 20px; outline: none;
 .caption-actions { grid-column: 3; justify-self: end; display: flex; }
 
 /* settings-style lists */
-.list { background: var(--surface); border-radius: 14px; overflow: hidden; }
+.list { background: var(--surface); border: var(--edge); border-radius: 14px; overflow: hidden; }
 .list > * + * { border-top: 1px solid var(--line); }
 .list-row {
   display: flex; align-items: center; gap: 12px; width: 100%; min-height: 66px;
@@ -226,7 +227,7 @@ main { max-width: 640px; margin: 0 auto; padding: 12px 12px 20px; outline: none;
 .done-btn .icon { width: 34px; height: 34px; }
 
 /* history */
-.history { list-style: none; margin: 0; padding: 0; background: var(--surface); border-radius: 14px; overflow: hidden; }
+.history { list-style: none; margin: 0; padding: 0; background: var(--surface); border: var(--edge); border-radius: 14px; overflow: hidden; }
 .history li { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 12px 14px; }
 .history li + li { border-top: 1px solid var(--line); }
 .history .muted { font-size: .8rem; margin-top: 2px; }
@@ -236,7 +237,7 @@ main { max-width: 640px; margin: 0 auto; padding: 12px 12px 20px; outline: none;
 .section-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 
 /* settings */
-.panel { border-radius: 14px; overflow: hidden; background: var(--surface); }
+.panel { border-radius: 14px; overflow: hidden; background: var(--surface); border: var(--edge); }
 .switch-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 16px; min-height: 60px; }
 .switch-row + .switch-row { border-top: 1px solid var(--line); }
 .switch-row select { width: auto; max-width: 100%; min-height: 44px; }
@@ -270,11 +271,11 @@ main { max-width: 640px; margin: 0 auto; padding: 12px 12px 20px; outline: none;
 
 /* history: summary tiles + month calendar */
 .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-.stat { background: var(--surface); border-radius: 14px; padding: 12px 14px; min-width: 0; }
+.stat { background: var(--surface); border: var(--edge); border-radius: 14px; padding: 12px 14px; min-width: 0; }
 .stat-label { font-size: .78rem; color: var(--muted); font-weight: 700; }
 .stat-value { font-size: 1.7rem; font-weight: 800; font-variant-numeric: tabular-nums; line-height: 1.2; }
 .stat-sub { font-size: .8rem; color: var(--muted); font-variant-numeric: tabular-nums; }
-.calendar { background: var(--surface); border-radius: 14px; padding: 6px 8px 10px; }
+.calendar { background: var(--surface); border: var(--edge); border-radius: 14px; padding: 6px 8px 10px; }
 .cal-head { display: grid; grid-template-columns: auto 1fr auto; align-items: center; text-align: center; }
 .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
 .cal-weekdays { color: var(--muted); font-size: .75rem; font-weight: 700; text-align: center; padding: 4px 0; }
