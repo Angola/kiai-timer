@@ -1,4 +1,4 @@
-import { buildTimeline, totalSeconds, Runner, formatTime, parseTime } from './engine.js';
+import { buildTimeline, totalSeconds, Runner, formatTime, formatClock, parseTime } from './engine.js';
 import { COLORS, LIMITS, newId, sanitizeWorkout, parseBackup } from './model.js';
 import { store } from './store.js';
 import { t, setLang, getLang } from './i18n.js';
@@ -32,23 +32,6 @@ function toast(msg) {
   el.hidden = false;
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => { el.hidden = true; }, 2200);
-}
-
-/** Button that needs a second tap within 3s to fire. Avoids blocking confirm() dialogs. */
-function confirmButton(label, onConfirm, cls = 'btn danger') {
-  let armed = false;
-  let timer;
-  const btn = h('button', {
-    class: cls, type: 'button',
-    onclick: () => {
-      if (armed) { clearTimeout(timer); onConfirm(); return; }
-      armed = true;
-      btn.textContent = t('confirmDelete');
-      btn.classList.add('armed');
-      timer = setTimeout(() => { armed = false; btn.textContent = label; btn.classList.remove('armed'); }, 3000);
-    },
-  }, label);
-  return btn;
 }
 
 // ---------- state ----------
@@ -86,16 +69,11 @@ const PHASE_COLOR = {
   prepare: '#b85400', work: '#c4122f', rest: '#00745c', setRest: '#1650a6', cooldown: '#5c2a9d',
 };
 
-function summary(w) {
-  const tl = buildTimeline(w);
-  const parts = w.intervals.length <= 3
-    ? w.intervals.map(iv => formatTime(iv.seconds)).join(' / ')
-    : `${w.intervals.length} ${t('intervals')}`;
-  const reps = [w.rounds > 1 ? `${w.rounds}×` : '', w.sets > 1 ? ` ${w.sets} ${t('sets')}` : ''].join('');
-  return `${reps} (${parts}) · ${formatTime(totalSeconds(tl))}`.trim();
-}
+const ROW_COLOR = { rounds: '#2f7fd8', sets: '#d9a400' };
 
 // ---------- navigation ----------
+
+let lastView = null;
 
 function navigate(v) {
   view = v;
@@ -112,69 +90,67 @@ function render() {
   main.replaceChildren(
     view === 'home' ? homeView() : view === 'history' ? historyView() : settingsView(),
   );
-  main.focus({ preventScroll: true });
-  window.scrollTo(0, 0);
+  // Only jump to the top on a real view change, not when redrawing after an edit.
+  if (view !== lastView) {
+    lastView = view;
+    main.focus({ preventScroll: true });
+    window.scrollTo(0, 0);
+  }
 }
 
-// ---------- home ----------
+// ---------- shared bits ----------
 
-function workoutCard(w) {
-  return h('article', { class: 'card' },
-    h('h3', {}, w.name),
-    h('p', { class: 'card-sub' }, summary(w)),
-    h('div', { class: 'card-actions' },
-      h('button', {
-        class: 'card-btn start', type: 'button', 'aria-label': `${t('start')}: ${w.name}`,
-        onclick: () => startRun(w),
-      }, `▶ ${t('start')}`),
-      h('button', {
-        class: 'card-btn', type: 'button', 'aria-label': `${t('edit')}: ${w.name}`,
-        onclick: () => openEditor(w),
-      }, t('edit')),
-      h('button', {
-        class: 'card-btn', type: 'button', 'aria-label': `${t('duplicate')}: ${w.name}`,
-        onclick: () => duplicate(w),
-      }, t('duplicate')),
+/** Settings-style row: dot · title/subtitle · big value · chevron. */
+function listRow({ dot, title, sub, value, valueClass = '', onclick }) {
+  return h('button', { type: 'button', class: 'list-row', onclick },
+    dot ? h('span', { class: 'dot', style: { '--dot': dot }, 'aria-hidden': 'true' }) : null,
+    h('span', { class: 'row-text' },
+      h('span', { class: 'row-title' }, title),
+      sub ? h('span', { class: 'row-sub' }, sub) : null,
     ),
+    value != null ? h('span', { class: `row-value ${valueClass}` }, value) : null,
+    h('span', { class: 'chev', 'aria-hidden': 'true' }, '›'),
   );
 }
 
-function duplicate(w) {
-  if (workouts.length >= LIMITS.workouts) return;
-  const name = `${w.name} ${t('copySuffix')}`.slice(0, LIMITS.name);
-  const copy = sanitizeWorkout({ ...structuredClone(w), id: newId(), name, updatedAt: Date.now() });
-  if (!copy) return;
-  const idx = workouts.findIndex(x => x.id === w.id);
-  workouts.splice(idx + 1, 0, copy);
-  persistWorkouts();
-  openEditor(copy);
+const textBtn = (label, onclick, cls = '') =>
+  h('button', { type: 'button', class: `text-btn ${cls}`, onclick }, label);
+
+/** Text button that needs a second tap within 3s. Avoids blocking confirm() dialogs. */
+function confirmText(label, onConfirm, confirmLabel = t('confirmDelete')) {
+  let timer;
+  const btn = textBtn(label, () => {
+    if (btn.classList.contains('armed')) { clearTimeout(timer); onConfirm(); return; }
+    btn.classList.add('armed');
+    btn.textContent = confirmLabel;
+    timer = setTimeout(() => { btn.classList.remove('armed'); btn.textContent = label; }, 3000);
+  }, 'danger');
+  return btn;
 }
 
-function homeView() {
-  return h('div', { class: 'stack' },
-    h('div', { class: 'section-head' },
-      h('h2', {}, t('workouts')),
-      h('button', { class: 'btn primary', type: 'button', onclick: () => openEditor(null) }, `＋ ${t('newWorkout')}`),
+/** Bottom sheet for editing one value. */
+function openSheet(title, ...content) {
+  const dlg = $('#sheet');
+  // autofocus on the container so opening doesn't draw a focus ring on "Done".
+  dlg.replaceChildren(h('div', { class: 'sheet-inner', tabIndex: -1, autofocus: true },
+    h('header', { class: 'sheet-head' },
+      h('span', {}),
+      h('strong', {}, title),
+      textBtn(t('doneBtn'), () => dlg.close(), 'accent'),
     ),
-    workouts.length
-      ? h('div', { class: 'cards' }, workouts.map(workoutCard))
-      : h('div', { class: 'empty stack' },
-          h('p', {}, t('noWorkouts')),
-          h('button', { class: 'btn', type: 'button', onclick: () => { addPresets(); render(); } }, t('restorePresets')),
-        ),
-  );
+    h('div', { class: 'sheet-body stack' }, ...content),
+  ));
+  if (!dlg.open) dlg.showModal();
 }
-
-// ---------- editor ----------
 
 function durationField(label, value, onChange, { min = 0 } = {}) {
   const input = h('input', {
-    type: 'text', inputMode: 'numeric', class: 'time-input', value: formatTime(value),
+    type: 'text', inputMode: 'numeric', class: 'time-input', value: formatClock(value),
     'aria-label': label, autocomplete: 'off', maxLength: 8,
   });
   const set = v => {
     value = Math.min(LIMITS.seconds, Math.max(min, v));
-    input.value = formatTime(value);
+    input.value = formatClock(value);
     onChange(value);
   };
   input.addEventListener('change', () => {
@@ -183,13 +159,10 @@ function durationField(label, value, onChange, { min = 0 } = {}) {
   });
   input.addEventListener('focus', () => input.select());
   // 5s steps up to 2 minutes, 15s steps above.
-  return h('div', { class: 'field' },
-    label ? h('span', { class: 'field-label' }, label) : null,
-    h('div', { class: 'stepper' },
-      h('button', { type: 'button', class: 'step', 'aria-label': `${label} −`, onclick: () => set(value - (value > 120 ? 15 : 5)) }, '−'),
-      input,
-      h('button', { type: 'button', class: 'step', 'aria-label': `${label} +`, onclick: () => set(value + (value >= 120 ? 15 : 5)) }, '+'),
-    ),
+  return h('div', { class: 'stepper' },
+    h('button', { type: 'button', class: 'step', 'aria-label': `${label} −`, onclick: () => set(value - (value > 120 ? 15 : 5)) }, '−'),
+    input,
+    h('button', { type: 'button', class: 'step', 'aria-label': `${label} +`, onclick: () => set(value + (value >= 120 ? 15 : 5)) }, '+'),
   );
 }
 
@@ -200,126 +173,226 @@ function countField(label, value, max, onChange) {
     out.textContent = String(value);
     onChange(value);
   };
-  return h('div', { class: 'field' },
-    h('span', { class: 'field-label' }, label),
-    h('div', { class: 'stepper' },
-      h('button', { type: 'button', class: 'step', 'aria-label': `${label} −`, onclick: () => set(value - 1) }, '−'),
-      out,
-      h('button', { type: 'button', class: 'step', 'aria-label': `${label} +`, onclick: () => set(value + 1) }, '+'),
+  return h('div', { class: 'stepper' },
+    h('button', { type: 'button', class: 'step', 'aria-label': `${label} −`, onclick: () => set(value - 1) }, '−'),
+    out,
+    h('button', { type: 'button', class: 'step', 'aria-label': `${label} +`, onclick: () => set(value + 1) }, '+'),
+  );
+}
+
+// ---------- home: selected workout's settings + my workouts ----------
+
+let selectedId = store.selected();
+let listEditing = false;
+
+function selectedWorkout() {
+  return workouts.find(w => w.id === selectedId) ?? workouts[0] ?? null;
+}
+
+function select(id) {
+  selectedId = id;
+  store.saveSelected(id);
+}
+
+/** Mutate a workout by id, re-sanitise, persist and redraw. */
+function updateWorkout(id, mutate) {
+  const idx = workouts.findIndex(w => w.id === id);
+  if (idx < 0) return;
+  const draft = structuredClone(workouts[idx]);
+  mutate(draft);
+  const clean = sanitizeWorkout({ ...draft, updatedAt: Date.now() });
+  if (!clean) return;
+  workouts[idx] = clean;
+  persistWorkouts();
+  render();
+}
+
+function createWorkout() {
+  if (workouts.length >= LIMITS.workouts) return;
+  const w = sanitizeWorkout({
+    id: newId(), name: t('untitled'), color: COLORS[0],
+    prepare: 10, rounds: 8, sets: 1, setRest: 60, cooldown: 0,
+    intervals: [{ type: 'work', name: '', seconds: 30 }, { type: 'rest', name: '', seconds: 15 }],
+  });
+  workouts.unshift(w);
+  persistWorkouts();
+  select(w.id);
+  listEditing = false;
+  render();
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+  renameWorkout(w);
+}
+
+function duplicate(w) {
+  if (workouts.length >= LIMITS.workouts) return;
+  const name = `${w.name} ${t('copySuffix')}`.slice(0, LIMITS.name);
+  const copy = sanitizeWorkout({ ...structuredClone(w), id: newId(), name, updatedAt: Date.now() });
+  if (!copy) return;
+  workouts.splice(workouts.findIndex(x => x.id === w.id) + 1, 0, copy);
+  persistWorkouts();
+  render();
+}
+
+function removeWorkout(w) {
+  workouts = workouts.filter(x => x.id !== w.id);
+  if (selectedId === w.id) select(workouts[0]?.id ?? null);
+  persistWorkouts();
+  render();
+}
+
+function renameWorkout(w) {
+  const input = h('input', {
+    type: 'text', class: 'name-input big', value: w.name, maxLength: LIMITS.name, placeholder: t('untitled'),
+    'aria-label': t('name'),
+    oninput: e => updateWorkout(w.id, x => { x.name = e.target.value || t('untitled'); }),
+  });
+  openSheet(t('name'), input);
+  input.focus();
+  input.select();
+}
+
+function pickDuration(w, key, title, min = 0) {
+  openSheet(title, durationField(title, w[key], v => updateWorkout(w.id, x => { x[key] = v; }), { min }));
+}
+
+function pickCount(w, key, title, max) {
+  openSheet(title, countField(title, w[key], max, v => updateWorkout(w.id, x => { x[key] = v; })));
+}
+
+function editInterval(w, i) {
+  const iv = w.intervals[i];
+  const upd = fn => updateWorkout(w.id, x => fn(x.intervals[i]));
+  const structural = fn => { updateWorkout(w.id, x => fn(x.intervals)); $('#sheet').close(); };
+  const typeBtn = type => h('button', {
+    type: 'button', class: 'seg-btn', 'aria-pressed': String(iv.type === type), style: { '--dot': PHASE_COLOR[type] },
+    onclick: () => { upd(x => { x.type = type; }); editInterval(selectedWorkout(), i); },
+  }, t(type));
+  const last = w.intervals.length - 1;
+  openSheet(t('intervalEdit'),
+    h('div', { class: 'segmented', role: 'group' }, typeBtn('work'), typeBtn('rest')),
+    h('input', {
+      type: 'text', class: 'name-input', value: iv.name, maxLength: LIMITS.name,
+      placeholder: t(iv.type === 'work' ? 'exerciseName' : 'rest'), 'aria-label': t('name'),
+      oninput: e => upd(x => { x.name = e.target.value; }),
+    }),
+    durationField(t(iv.type), iv.seconds, v => upd(x => { x.seconds = v; }), { min: 1 }),
+    h('div', { class: 'sheet-actions' },
+      i > 0 ? textBtn(t('moveUp'), () => structural(a => { [a[i - 1], a[i]] = [a[i], a[i - 1]]; })) : null,
+      i < last ? textBtn(t('moveDown'), () => structural(a => { [a[i + 1], a[i]] = [a[i], a[i + 1]]; })) : null,
+      w.intervals.length < LIMITS.intervals ? textBtn(t('duplicate'), () => structural(a => { a.splice(i + 1, 0, { ...a[i] }); })) : null,
+      last > 0 ? confirmText(t('delete'), () => structural(a => { a.splice(i, 1); })) : null,
     ),
   );
 }
 
-function openEditor(existing) {
-  const draft = existing
-    ? structuredClone(existing)
-    : {
-        id: newId(), name: '', color: COLORS[workouts.length % COLORS.length],
-        prepare: 10, rounds: 8, sets: 1, setRest: 60, cooldown: 0,
-        intervals: [{ type: 'work', name: '', seconds: 30 }, { type: 'rest', name: '', seconds: 15 }],
-      };
-  const dlg = $('#editor');
-  const isNew = !workouts.some(x => x.id === draft.id);
-  const totalEl = h('span', {});
-  const updateTotal = () => {
-    const w = sanitizeWorkout(draft);
-    totalEl.textContent = w ? formatTime(totalSeconds(buildTimeline(w))) : '0:00';
-  };
+function addInterval(w, type) {
+  if (w.intervals.length >= LIMITS.intervals) return;
+  updateWorkout(w.id, x => { x.intervals.push({ type, name: '', seconds: type === 'work' ? 30 : 15 }); });
+}
 
-  const build = () => {
-    // Rebuilding replaces the form, so keep the user's scroll position.
-    const scrollTop = dlg.querySelector('.editor-body')?.scrollTop ?? 0;
-    const intervalsList = h('ol', { class: 'intervals' },
-      draft.intervals.map((iv, i) => h('li', { class: `interval ${iv.type}` },
-        h('div', { class: 'interval-top' },
-          h('select', {
-            class: 'type-select', 'aria-label': t('intervals'),
-            onchange: e => { iv.type = e.target.value; build(); },
-          },
-            h('option', { value: 'work', selected: iv.type === 'work' }, t('work')),
-            h('option', { value: 'rest', selected: iv.type === 'rest' }, t('rest')),
-          ),
-          h('input', {
-            type: 'text', value: iv.name, maxLength: LIMITS.name, class: 'name-input',
-            placeholder: t(iv.type), 'aria-label': t('name'),
-            oninput: e => { iv.name = e.target.value; },
-          }),
-        ),
-        h('div', { class: 'interval-bottom' },
-          durationField('', iv.seconds, v => { iv.seconds = v; updateTotal(); }, { min: 1 }),
-          h('div', { class: 'row-actions' },
-            h('button', { type: 'button', class: 'icon', 'aria-label': '↑', disabled: i === 0,
-              onclick: () => { [draft.intervals[i - 1], draft.intervals[i]] = [draft.intervals[i], draft.intervals[i - 1]]; build(); } }, '↑'),
-            h('button', { type: 'button', class: 'icon', 'aria-label': '↓', disabled: i === draft.intervals.length - 1,
-              onclick: () => { [draft.intervals[i + 1], draft.intervals[i]] = [draft.intervals[i], draft.intervals[i + 1]]; build(); } }, '↓'),
-            h('button', { type: 'button', class: 'icon', 'aria-label': t('duplicate'), disabled: draft.intervals.length >= LIMITS.intervals,
-              onclick: () => { draft.intervals.splice(i + 1, 0, { ...iv }); build(); } }, '⧉'),
-            h('button', { type: 'button', class: 'icon danger', 'aria-label': t('delete'), disabled: draft.intervals.length === 1,
-              onclick: () => { draft.intervals.splice(i, 1); build(); } }, '✕'),
-          ),
-        ),
-      )),
-    );
+function settingsList(w) {
+  const perRound = w.intervals.map(iv => iv.name || t(iv.type)).join(' + ');
+  return h('div', { class: 'list' },
+    listRow({ title: t('name'), value: w.name, valueClass: 'text', onclick: () => renameWorkout(w) }),
+    listRow({
+      dot: PHASE_COLOR.prepare, title: t('prepare'), sub: t('prepareSub'), value: formatClock(w.prepare),
+      onclick: () => pickDuration(w, 'prepare', t('prepare')),
+    }),
+    w.intervals.map((iv, i) => listRow({
+      dot: PHASE_COLOR[iv.type], title: iv.name || t(iv.type === 'work' ? 'workout' : 'rest'),
+      sub: t(iv.type === 'work' ? 'workSub' : 'restSub'), value: formatClock(iv.seconds),
+      onclick: () => editInterval(w, i),
+    })),
+    h('div', { class: 'list-add' },
+      textBtn(t('addWork'), () => addInterval(w, 'work'), 'accent'),
+      textBtn(t('addRest'), () => addInterval(w, 'rest'), 'accent'),
+    ),
+    listRow({
+      dot: ROW_COLOR.rounds, title: t('roundsCount'), sub: t('roundsSub', { list: perRound }), value: String(w.rounds),
+      onclick: () => pickCount(w, 'rounds', t('roundsCount'), LIMITS.rounds),
+    }),
+    listRow({
+      dot: ROW_COLOR.sets, title: t('setsCount'), sub: t('setsSub', { n: w.rounds }), value: String(w.sets),
+      onclick: () => pickCount(w, 'sets', t('setsCount'), LIMITS.sets),
+    }),
+    w.sets > 1 ? listRow({
+      dot: PHASE_COLOR.setRest, title: t('setRest'), sub: t('setRestSub'), value: formatClock(w.setRest),
+      onclick: () => pickDuration(w, 'setRest', t('setRest')),
+    }) : null,
+    listRow({
+      dot: PHASE_COLOR.cooldown, title: t('cooldown'), sub: t('cooldownSub'), value: formatClock(w.cooldown),
+      onclick: () => pickDuration(w, 'cooldown', t('cooldown')),
+    }),
+  );
+}
 
-    const addBtn = (type, label) => h('button', {
-      type: 'button', class: 'btn ghost', disabled: draft.intervals.length >= LIMITS.intervals,
-      onclick: () => { draft.intervals.push({ type, name: '', seconds: type === 'work' ? 30 : 15 }); build(); },
-    }, label);
-
-    dlg.replaceChildren(h('form', {
-      class: 'editor', method: 'dialog',
-      onsubmit: e => {
-        e.preventDefault();
-        const w = sanitizeWorkout({ ...draft, name: draft.name.trim() || t('untitled'), updatedAt: Date.now() });
-        if (!w) return;
-        const idx = workouts.findIndex(x => x.id === w.id);
-        if (idx >= 0) workouts[idx] = w; else workouts.unshift(w);
-        persistWorkouts();
-        dlg.close();
-        toast(t('saved'));
-        navigate('home');
-      },
+function workoutRow(w, isSelected) {
+  const work = w.intervals.find(iv => iv.type === 'work');
+  const rest = w.intervals.find(iv => iv.type === 'rest');
+  const many = w.intervals.length > 2;
+  const cell = (label, value) => [h('span', { class: 'k' }, label), h('span', { class: 'v' }, value)];
+  const right = listEditing
+    ? h('div', { class: 'row-edit' },
+        textBtn(t('duplicate'), e => { e.stopPropagation(); duplicate(w); }),
+        confirmText(t('delete'), () => removeWorkout(w)),
+      )
+    : h('span', { class: `check ${isSelected ? 'on' : ''}`, 'aria-hidden': 'true' }, '✓');
+  return h('div', {
+    class: `workout-row ${isSelected ? 'selected' : ''}`, role: 'button', tabIndex: 0,
+    'aria-pressed': String(isSelected),
+    onclick: e => {
+      if (listEditing || e.target.closest('.row-edit')) return;
+      select(w.id);
+      render();
+      window.scrollTo({ top: 0, behavior: 'smooth' });
     },
-      h('header', { class: 'editor-head' },
-        h('button', { type: 'button', class: 'btn ghost', onclick: () => dlg.close() }, t('cancel')),
-        h('div', { class: 'editor-title' },
-          h('strong', {}, isNew ? t('newWorkout') : t('editWorkout')),
-          h('span', { class: 'muted small' }, `${t('total')} `, totalEl),
+    onkeydown: e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.currentTarget.click(); } },
+  },
+    h('div', { class: 'workout-main' },
+      h('strong', { class: 'workout-name' }, w.name),
+      h('div', { class: 'workout-grid' },
+        h('div', {},
+          cell(t('prepare'), formatClock(w.prepare)),
+          many ? cell(t('intervals'), String(w.intervals.length)) : cell(t('workout'), formatClock(work?.seconds ?? 0)),
+          many ? cell(t('total'), formatClock(totalSeconds(buildTimeline(w)))) : cell(t('rest'), formatClock(rest?.seconds ?? 0)),
         ),
-        h('button', { type: 'submit', class: 'btn primary' }, t('save')),
+        h('div', {},
+          cell(t('roundsCount'), String(w.rounds)),
+          cell(t('setsCount'), String(w.sets)),
+          cell(t('setRestShort'), formatClock(w.sets > 1 ? w.setRest : 0)),
+        ),
       ),
-      h('div', { class: 'editor-body stack' },
-        h('label', { class: 'field' },
-          h('span', { class: 'field-label' }, t('name')),
-          h('input', {
-            type: 'text', value: draft.name, maxLength: LIMITS.name, placeholder: t('untitled'),
-            class: 'name-input big', oninput: e => { draft.name = e.target.value; },
-          }),
-        ),
-        durationField(t('prepare'), draft.prepare, v => { draft.prepare = v; updateTotal(); }),
-        h('h3', { class: 'sub' }, t('intervals')),
-        intervalsList,
-        h('div', { class: 'row' }, addBtn('work', t('addWork')), addBtn('rest', t('addRest'))),
-        h('div', { class: 'grid2' },
-          countField(t('rounds'), draft.rounds, LIMITS.rounds, v => { draft.rounds = v; updateTotal(); }),
-          countField(t('sets'), draft.sets, LIMITS.sets, v => { draft.sets = v; build(); }),
-        ),
-        draft.sets > 1 ? durationField(t('setRest'), draft.setRest, v => { draft.setRest = v; updateTotal(); }) : null,
-        durationField(t('cooldown'), draft.cooldown, v => { draft.cooldown = v; updateTotal(); }),
-        isNew ? null : confirmButton(t('deleteWorkout'), () => {
-          workouts = workouts.filter(x => x.id !== draft.id);
-          persistWorkouts();
-          dlg.close();
-          render();
-        }, 'btn danger block'),
-      ),
-    ));
-    dlg.querySelector('.editor-body').scrollTop = scrollTop;
-    updateTotal();
-  };
+    ),
+    right,
+  );
+}
 
-  build();
-  if (!dlg.open) dlg.showModal();
+function homeView() {
+  const w = selectedWorkout();
+  if (w && w.id !== selectedId) select(w.id);
+  return h('div', { class: 'stack home' },
+    w ? [
+      h('div', { class: 'list-caption' }, t('intervals')),
+      settingsList(w),
+      h('button', { type: 'button', class: 'start-big', onclick: () => startRun(w) },
+        h('span', {}, `▶ ${t('start')}`),
+        h('span', { class: 'start-total' }, formatClock(totalSeconds(buildTimeline(w)))),
+      ),
+    ] : null,
+    h('div', { class: 'list-caption with-actions' },
+      h('span', {}, t('myWorkouts')),
+      h('div', { class: 'caption-actions' },
+        textBtn(t('newWorkout'), createWorkout, 'accent'),
+        workouts.length ? textBtn(listEditing ? t('doneBtn') : t('edit'), () => { listEditing = !listEditing; render(); }, 'accent') : null,
+      ),
+    ),
+    workouts.length
+      ? h('div', { class: 'list' }, workouts.map(x => workoutRow(x, x.id === w?.id)))
+      : h('div', { class: 'empty stack' },
+          h('p', {}, t('noWorkouts')),
+          textBtn(t('restorePresets'), () => { addPresets(); render(); }, 'accent'),
+        ),
+  );
 }
 
 // ---------- runner ----------
@@ -370,23 +443,29 @@ function startRun(workout) {
   const maxRound = workout.rounds;
   const maxSet = workout.sets;
 
+  // Pause button with a ring showing whole-workout progress.
   const R = 46;
   const C = 2 * Math.PI * R;
-  const ring = h('svg:circle', { class: 'ring-fg', cx: 50, cy: 50, r: R, 'stroke-dasharray': C, 'stroke-dashoffset': 0 });
+  const ring = h('svg:circle', { class: 'ring-fg', cx: 50, cy: 50, r: R, 'stroke-dasharray': C, 'stroke-dashoffset': C });
   const els = {
+    caption: h('div', { class: 'run-caption' }),
+    total: h('div', { class: 'run-total-time', 'aria-label': t('remaining') }),
     phase: h('div', { class: 'run-phase' }),
     time: h('div', { class: 'run-time', role: 'timer', 'aria-live': 'off' }),
-    label: h('div', { class: 'run-label' }),
-    counters: h('div', { class: 'run-counters' }),
-    next: h('div', { class: 'run-next' }),
-    bar: h('div', { class: 'bar-fill' }),
-    elapsed: h('span', {}),
-    remaining: h('span', {}),
-    toggle: h('button', { type: 'button', class: 'ctrl main', onclick: () => togglePause() }),
+    nextLabel: h('div', { class: 'run-next-label' }),
+    nextTime: h('div', { class: 'run-next-time' }),
+    roundsLeft: h('div', { class: 'rounds-left' }),
+    toggleIcon: h('span', { class: 'toggle-icon', 'aria-hidden': 'true' }),
+    toggleLabel: h('div', { class: 'toggle-label' }),
   };
+  const toggleBtn = h('button', { type: 'button', class: 'toggle', onclick: () => togglePause() },
+    h('svg:svg', { viewBox: '0 0 100 100', class: 'ring', 'aria-hidden': 'true' },
+      h('svg:circle', { class: 'ring-bg', cx: 50, cy: 50, r: R }), ring),
+    els.toggleIcon,
+  );
 
   const stopBtn = h('button', {
-    type: 'button', class: 'btn ghost', onclick: () => {
+    type: 'button', class: 'text-btn', onclick: () => {
       if (runner.finished || !runner.started || runner.snapshot().elapsedTotalMs < 3000) return endRun(false);
       if (stopBtn.classList.contains('armed')) return endRun(false);
       stopBtn.classList.add('armed');
@@ -396,23 +475,22 @@ function startRun(workout) {
   }, t('stop'));
 
   const root = $('#run');
+  const nextBlock = h('section', { class: 'run-next' }, els.nextLabel, els.nextTime);
   root.replaceChildren(
-    h('header', { class: 'run-head' }, stopBtn, h('span', { class: 'run-title' }, workout.name), h('span', {})),
-    h('div', { class: 'ring-wrap' },
-      h('svg:svg', { viewBox: '0 0 100 100', class: 'ring', 'aria-hidden': 'true' },
-        h('svg:circle', { class: 'ring-bg', cx: 50, cy: 50, r: R }), ring),
-      h('div', { class: 'ring-center' }, els.phase, els.time, els.label),
+    h('header', { class: 'run-head' },
+      stopBtn,
+      h('div', { class: 'run-head-center' }, els.caption, els.total),
+      h('span', { class: 'run-title' }, workout.name),
     ),
-    els.counters,
-    els.next,
-    h('div', { class: 'run-total' },
-      h('div', { class: 'bar' }, els.bar),
-      h('div', { class: 'bar-labels' }, els.elapsed, els.remaining),
-    ),
-    h('div', { class: 'controls' },
-      h('button', { type: 'button', class: 'ctrl', 'aria-label': t('previous'), onclick: () => { runner.prev(); frame(true); } }, '⏮'),
-      els.toggle,
-      h('button', { type: 'button', class: 'ctrl', 'aria-label': t('skip'), onclick: () => { runner.skip(); frame(true); } }, '⏭'),
+    h('section', { class: 'run-now' }, els.phase, els.time),
+    nextBlock,
+    h('footer', { class: 'run-foot' },
+      h('div', { class: 'foot-stat' }, els.roundsLeft, h('div', { class: 'foot-label' }, t('roundsLeft'))),
+      h('div', { class: 'foot-toggle' }, toggleBtn, els.toggleLabel),
+      h('div', { class: 'foot-skip' },
+        textBtn(t('previous'), () => { runner.prev(); frame(true); }),
+        textBtn(t('skip'), () => { runner.skip(); frame(true); }),
+      ),
     ),
   );
   root.hidden = false;
@@ -445,26 +523,27 @@ function startRun(workout) {
       }
     }
 
-    if (run.color !== PHASE_COLOR[seg.phase]) {
-      run.color = PHASE_COLOR[seg.phase];
-      root.style.setProperty('--phase', run.color);
-      setThemeColor(run.color);
-    }
-    els.phase.textContent = t(seg.phase);
-    els.time.textContent = formatTime(sec);
-    els.label.textContent = seg.label;
-    els.counters.textContent = [
+    root.style.setProperty('--phase', PHASE_COLOR[seg.phase]);
+    root.style.setProperty('--next', s.next ? PHASE_COLOR[s.next.phase] : '#2a2f3a');
+    els.caption.textContent = [
       run.maxRound > 1 ? t('roundOf', { a: seg.round, b: run.maxRound }) : null,
       run.maxSet > 1 ? t('setOf', { a: seg.set, b: run.maxSet }) : null,
-    ].filter(Boolean).join(' · ');
-    els.next.textContent = s.next ? `${t('next')}: ${phaseName(s.next)} ${formatTime(s.next.duration)}` : `${t('next')}: ${t('finish')}`;
-    ring.setAttribute('stroke-dashoffset', String(C * s.progress));
-    els.bar.style.setProperty('width', `${(s.elapsedTotalMs / s.totalMs) * 100}%`);
-    els.elapsed.textContent = `${t('elapsed')} ${formatTime(Math.floor(s.elapsedTotalMs / 1000))}`;
-    els.remaining.textContent = `${t('remaining')} ${formatTime(Math.ceil((s.totalMs - s.elapsedTotalMs) / 1000))}`;
+    ].filter(Boolean).join(' · ') || workout.name;
+    els.total.textContent = formatClock(Math.ceil((s.totalMs - s.elapsedTotalMs) / 1000));
+    els.phase.textContent = phaseName(seg);
+    els.time.textContent = formatClock(sec);
+    els.nextLabel.textContent = s.next ? `${phaseName(s.next)}:` : t('finish');
+    els.nextTime.textContent = s.next ? formatClock(s.next.duration) : '';
+    // Rounds still to do, counting the current one (0 during cooldown).
+    const left = seg.phase === 'prepare' ? run.maxRound * run.maxSet
+      : seg.phase === 'cooldown' ? 0
+      : (run.maxSet - seg.set) * run.maxRound + (run.maxRound - seg.round + 1);
+    els.roundsLeft.textContent = String(left);
+    ring.setAttribute('stroke-dashoffset', String(C * (1 - s.elapsedTotalMs / s.totalMs)));
     const running = s.running || !runner.started;
-    els.toggle.textContent = s.running ? '❚❚' : '▶';
-    els.toggle.setAttribute('aria-label', s.running ? t('pause') : t('resume'));
+    els.toggleIcon.className = `toggle-icon ${s.running ? 'pause' : 'play'}`;
+    els.toggleLabel.textContent = s.running ? t('pause') : t('resume');
+    toggleBtn.setAttribute('aria-label', s.running ? t('pause') : t('resume'));
     root.classList.toggle('paused', !running);
   };
 
@@ -505,7 +584,7 @@ function finishRun() {
     h('div', { class: 'done-mark', 'aria-hidden': 'true' }, '✓'),
     h('h2', {}, t('done')),
     h('p', { class: 'muted' }, `${workout.name} · ${formatTime(runner.total / 1000)}`),
-    h('button', { type: 'button', class: 'btn primary', onclick: closeRun }, t('back')),
+    h('button', { type: 'button', class: 'start-big done-btn', onclick: closeRun }, t('back')),
   ));
   root.querySelector('button').focus();
 }
@@ -563,7 +642,7 @@ function historyView() {
   return h('div', { class: 'stack' },
     h('div', { class: 'section-head' },
       h('h2', {}, t('history')),
-      list.length ? confirmButton(t('clearHistory'), () => { store.saveHistory([]); render(); }, 'btn ghost danger') : null,
+      list.length ? confirmText(t('clearHistory'), () => { store.saveHistory([]); render(); }) : null,
     ),
     list.length
       ? h('ul', { class: 'history' }, list.map(e => h('li', {},
@@ -676,7 +755,7 @@ function settingsView() {
     onchange: e => { const f = e.target.files?.[0]; if (f) importData(f); e.target.value = ''; },
   });
   return h('div', { class: 'stack' },
-    h('h2', {}, t('settings')),
+    h('div', { class: 'list-caption' }, t('settings')),
     h('div', { class: 'panel' },
       toggle('sound'), volumeRow(), toggle('voice'), voiceRow(), toggle('vibrate'), toggle('wakeLock'),
       h('label', { class: 'switch-row' },
@@ -690,21 +769,19 @@ function settingsView() {
         ),
       ),
     ),
-    h('div', { class: 'row' },
-      h('button', { type: 'button', class: 'btn ghost', onclick: exportData }, t('exportData')),
-      h('button', { type: 'button', class: 'btn ghost', onclick: () => fileInput.click() }, t('importData')),
-      fileInput,
-      h('button', {
-        type: 'button', class: 'btn ghost',
-        onclick: () => toast(t('presetsAdded', { n: addPresets() })),
-      }, t('restorePresets')),
+    h('div', { class: 'list' },
+      listRow({ title: t('exportData'), onclick: exportData }),
+      listRow({ title: t('importData'), onclick: () => fileInput.click() }),
+      listRow({ title: t('restorePresets'), onclick: () => { toast(t('presetsAdded', { n: addPresets() })); } }),
     ),
+    fileInput,
     h('p', { class: 'muted small' }, t('about')),
   );
 }
 
 // ---------- boot ----------
 
+$('#sheet').addEventListener('click', e => { if (e.target === e.currentTarget) e.currentTarget.close(); });
 for (const btn of document.querySelectorAll('#tabs button')) {
   btn.addEventListener('click', () => navigate(btn.dataset.view));
 }

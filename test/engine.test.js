@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildTimeline, totalSeconds, Runner, formatTime, parseTime } from '../app/js/engine.js';
+import { buildTimeline, totalSeconds, Runner, formatTime, formatClock, parseTime } from '../app/js/engine.js';
 
 const tabata = {
   prepare: 10, rounds: 8, sets: 1, setRest: 60, cooldown: 0,
@@ -99,6 +99,12 @@ test('skip while paused stays paused', () => {
   r.skip();
   clock.advance(5000);
   assert.equal(r.snapshot().remainingMs, 20000);
+});
+
+test('formatClock pads minutes', () => {
+  assert.equal(formatClock(6), '00:06');
+  assert.equal(formatClock(725), '12:05');
+  assert.equal(formatClock(3725), '1:02:05');
 });
 
 test('format / parse time', () => {

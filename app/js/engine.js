@@ -154,6 +154,15 @@ export function formatTime(totalSec) {
   return h > 0 ? `${h}:${String(m).padStart(2, '0')}:${ss}` : `${m}:${ss}`;
 }
 
+/** Zero-padded clock for list values: "00:30", "12:05", "1:02:05". */
+export function formatClock(totalSec) {
+  const s = Math.max(0, Math.round(totalSec));
+  const h = Math.floor(s / 3600);
+  const mm = String(Math.floor((s % 3600) / 60)).padStart(2, '0');
+  const ss = String(s % 60).padStart(2, '0');
+  return h > 0 ? `${h}:${mm}:${ss}` : `${mm}:${ss}`;
+}
+
 /** Parse "m:ss", "h:mm:ss" or plain seconds. Returns NaN when invalid. */
 export function parseTime(str) {
   const parts = String(str).trim().split(':');
