@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; manifest-src 'self'; connect-src 'self'; worker-src 'self'; base-uri 'none'; form-action 'none'; object-src 'none'">
+  <meta name="referrer" content="no-referrer">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0f1115">
+  <meta name="description" content="Kiai Timer — offline interval & workout timer (Tabata, HIIT, circuits, boxing rounds).">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Kiai">
+  <title>Kiai Timer</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="stylesheet" href="css/app.css">
+  <script type="module" src="js/app.js"></script>
+</head>
+<body>
+  <header class="topbar">
+    <h1 class="brand"><img src="icons/icon.svg" alt="" width="28" height="28"> Kiai Timer</h1>
+  </header>
+
+  <main id="view" tabindex="-1"></main>
+
+  <nav id="tabs" class="tabs" aria-label="Main">
+    <button type="button" data-view="home"></button>
+    <button type="button" data-view="history"></button>
+    <button type="button" data-view="settings"></button>
+  </nav>
+
+  <dialog id="editor" class="sheet"></dialog>
+  <section id="run" class="run" hidden aria-live="polite"></section>
+  <div id="toast" class="toast" role="status" hidden></div>
+
+  <noscript>Kiai Timer requires JavaScript.</noscript>
+</body>
+</html>

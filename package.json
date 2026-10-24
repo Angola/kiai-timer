@@ -1,0 +1,14 @@
+{
+  "name": "kiai-timer",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Offline-first interval / workout timer PWA with zero runtime dependencies.",
+  "type": "module",
+  "license": "MIT",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "start": "node tools/serve.mjs",
+    "test": "node --test \"test/*.test.js\"",
+    "icons": "node tools/make-icons.mjs"
+  }
+}
